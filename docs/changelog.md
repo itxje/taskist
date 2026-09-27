@@ -31,3 +31,7 @@ Task `20260927-1409-task-commands` completed: `add`, `ls`, `show`, `edit`, `next
 ## 2026-09-27 15:30 [progress]
 
 Task `20260927-1530-task-command-fixes` completed: `find` folds case per character to a stable form, so texts that differ only in letter case match (word-final sigma and the capital sharp s included); `--pri` and `--limit` take values beginning with `-` and report them as bad values; invalid feature and tag names given to `ls` and `next` filters are usage errors; the colour decision follows the automatic rules of `anstream` (`NO_COLOR`, `CLICOLOR_FORCE`, `CLICOLOR`, `TERM`, `CI`) applied to the captured environment; an integration test pins age between priority and id in the `ls` and `find` order.
+
+## 2026-09-27 16:20 [progress]
+
+Task `20260927-1620-status-transitions` completed: `start`, `block`, `done`, `drop`, `reopen` and `note` on top of the single transition table, each in one immediate transaction; several ids are all-or-nothing, a no-op writes nothing, reasons and notes are stored with the resolved actor, and `closed_at` is set by `done` and `drop` and cleared by `reopen`. `done` takes leading plain-digit arguments as ids and at most one note. Project and feature names given to look something up are validated before the database is opened, so an invalid name is a `usage` error and a valid unknown one `not_found`.
