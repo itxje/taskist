@@ -23,3 +23,7 @@ Task `20260927-1300-sqlite-store` completed: `store` module (connection setup wi
 ## 2026-09-27 13:44 [progress]
 
 Task `20260927-1344-scope-projects-features` completed: `scope` module (order `-p/--project`, `TASKIST_PROJECT`, current directory, none; component-wise longest-prefix matching on canonical paths; archived projects never match by directory; `--all-projects` for listing commands), global `--json` and `--by` options, actor resolution, the `project add|ls|show|edit|archive|rm` and `feature ls|mv` commands, and `tk ls` listing the open tasks of the resolved scope. `project ls --json` now returns `{"projects": [...]}`. The check that reads the stored actor through the binary follows with task creation.
+
+## 2026-09-27 14:09 [progress]
+
+Task `20260927-1409-task-commands` completed: `add`, `ls`, `show`, `edit`, `next` and `find` with human output and the JSON `data` shapes of the output contract. `add` stores `created_by` from `--by`, `TASKIST_ACTOR`, `USER` or `unknown`. The current directory is read only when a command needs directory scope, so `--help`, `--version` and commands scoped by `-p`, `TASKIST_PROJECT` or `--all-projects` work in an unreadable directory. Human output colours the status word and headings through `anstream`; stored text is printed as stored. `anstream` and `anstyle` enter the dependency set; `anyhow` leaves it, because `main` no longer has a fallible step.
