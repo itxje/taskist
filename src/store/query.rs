@@ -1,0 +1,391 @@
+//! Queries for projects, features, tasks, tags and notes. Every value is a bound parameter.
+
+use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
+use rusqlite::{OptionalExtension, Row, params};
+
+use super::Tx;
+use crate::error::Error;
+use crate::model::{Feature, Note, NoteKind, Project, Status, Task};
+
+/// The current time as `YYYY-MM-DDTHH:MM:SS.sssZ`, inside SQL text.
+macro_rules! now {
+    () => {
+        "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+    };
+}
+
+macro_rules! project_columns {
+    () => {
+        "id, name, path, description, archived, created_at"
+    };
+}
+
+macro_rules! feature_columns {
+    () => {
+        "id, project_id, name, created_at"
+    };
+}
+
+macro_rules! task_columns {
+    () => {
+        "id, project_id, feature_id, title, body, status, priority, created_at, updated_at, \
+         closed_at, created_by"
+    };
+}
+
+macro_rules! note_columns {
+    () => {
+        "id, task_id, kind, text, author, created_at"
+    };
+}
+
+/// The values of a new task; it starts as `todo`.
+#[derive(Debug, Clone, Copy)]
+pub struct NewTask<'a> {
+    /// Owning project.
+    pub project_id: i64,
+    /// Feature, if any.
+    pub feature_id: Option<i64>,
+    /// Title, already normalized.
+    pub title: &'a str,
+    /// Free text.
+    pub body: &'a str,
+    /// 0 (most urgent) to 3.
+    pub priority: u8,
+    /// Actor that creates the task.
+    pub created_by: &'a str,
+}
+
+impl ToSql for Status {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.as_str()))
+    }
+}
+
+impl FromSql for Status {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_str()?
+            .parse()
+            .map_err(|err: Error| FromSqlError::Other(Box::new(err)))
+    }
+}
+
+impl ToSql for NoteKind {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(self.as_str()))
+    }
+}
+
+impl FromSql for NoteKind {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        value
+            .as_str()?
+            .parse()
+            .map_err(|err: Error| FromSqlError::Other(Box::new(err)))
+    }
+}
+
+fn project_row(row: &Row<'_>) -> rusqlite::Result<Project> {
+    Ok(Project {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        path: row.get(2)?,
+        description: row.get(3)?,
+        archived: row.get(4)?,
+        created_at: row.get(5)?,
+    })
+}
+
+fn feature_row(row: &Row<'_>) -> rusqlite::Result<Feature> {
+    Ok(Feature {
+        id: row.get(0)?,
+        project_id: row.get(1)?,
+        name: row.get(2)?,
+        created_at: row.get(3)?,
+    })
+}
+
+/// A task without its tags; [`Tx::with_tags`] adds them.
+fn task_row(row: &Row<'_>) -> rusqlite::Result<Task> {
+    Ok(Task {
+        id: row.get(0)?,
+        project_id: row.get(1)?,
+        feature_id: row.get(2)?,
+        title: row.get(3)?,
+        body: row.get(4)?,
+        status: row.get(5)?,
+        priority: row.get(6)?,
+        tags: Vec::new(),
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
+        closed_at: row.get(9)?,
+        created_by: row.get(10)?,
+    })
+}
+
+fn note_row(row: &Row<'_>) -> rusqlite::Result<Note> {
+    Ok(Note {
+        id: row.get(0)?,
+        task_id: row.get(1)?,
+        kind: row.get(2)?,
+        text: row.get(3)?,
+        author: row.get(4)?,
+        created_at: row.get(5)?,
+    })
+}
+
+/// Fails with `not_found` when a statement meant to change one row changed none.
+fn expect_one(changed: usize, what: &str, id: i64) -> Result<(), Error> {
+    if changed == 0 {
+        return Err(Error::NotFound(format!("no {what} with id {id}")));
+    }
+    Ok(())
+}
+
+impl Tx<'_> {
+    /// Creates a project.
+    pub fn insert_project(
+        &self,
+        name: &str,
+        path: Option<&str>,
+        description: &str,
+    ) -> Result<Project, Error> {
+        Ok(self.tx.query_row(
+            concat!(
+                "INSERT INTO project (name, path, description, created_at) VALUES (?1, ?2, ?3, ",
+                now!(),
+                ") RETURNING ",
+                project_columns!()
+            ),
+            params![name, path, description],
+            project_row,
+        )?)
+    }
+
+    /// Projects ordered by name; archived ones only when `include_archived`.
+    pub fn projects(&self, include_archived: bool) -> Result<Vec<Project>, Error> {
+        let mut stmt = self.tx.prepare_cached(concat!(
+            "SELECT ",
+            project_columns!(),
+            " FROM project WHERE ?1 OR archived = 0 ORDER BY name"
+        ))?;
+        let rows = stmt.query_map([include_archived], project_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// The project with this name.
+    pub fn project_by_name(&self, name: &str) -> Result<Option<Project>, Error> {
+        Ok(self
+            .tx
+            .query_row(
+                concat!(
+                    "SELECT ",
+                    project_columns!(),
+                    " FROM project WHERE name = ?1"
+                ),
+                [name],
+                project_row,
+            )
+            .optional()?)
+    }
+
+    /// The project linked to this directory.
+    pub fn project_by_path(&self, path: &str) -> Result<Option<Project>, Error> {
+        Ok(self
+            .tx
+            .query_row(
+                concat!(
+                    "SELECT ",
+                    project_columns!(),
+                    " FROM project WHERE path = ?1"
+                ),
+                [path],
+                project_row,
+            )
+            .optional()?)
+    }
+
+    /// Archives or unarchives a project.
+    pub fn set_project_archived(&self, id: i64, archived: bool) -> Result<(), Error> {
+        let changed = self.tx.execute(
+            "UPDATE project SET archived = ?2 WHERE id = ?1",
+            params![id, archived],
+        )?;
+        expect_one(changed, "project", id)
+    }
+
+    /// Deletes a project with its features, tasks, tags and notes.
+    pub fn delete_project(&self, id: i64) -> Result<(), Error> {
+        let changed = self.tx.execute("DELETE FROM project WHERE id = ?1", [id])?;
+        expect_one(changed, "project", id)
+    }
+
+    /// Creates a feature in a project.
+    pub fn insert_feature(&self, project_id: i64, name: &str) -> Result<Feature, Error> {
+        Ok(self.tx.query_row(
+            concat!(
+                "INSERT INTO feature (project_id, name, created_at) VALUES (?1, ?2, ",
+                now!(),
+                ") RETURNING ",
+                feature_columns!()
+            ),
+            params![project_id, name],
+            feature_row,
+        )?)
+    }
+
+    /// The features of a project, ordered by name.
+    pub fn features(&self, project_id: i64) -> Result<Vec<Feature>, Error> {
+        let mut stmt = self.tx.prepare_cached(concat!(
+            "SELECT ",
+            feature_columns!(),
+            " FROM feature WHERE project_id = ?1 ORDER BY name"
+        ))?;
+        let rows = stmt.query_map([project_id], feature_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// The feature with this name in a project.
+    pub fn feature_by_name(&self, project_id: i64, name: &str) -> Result<Option<Feature>, Error> {
+        Ok(self
+            .tx
+            .query_row(
+                concat!(
+                    "SELECT ",
+                    feature_columns!(),
+                    " FROM feature WHERE project_id = ?1 AND name = ?2"
+                ),
+                params![project_id, name],
+                feature_row,
+            )
+            .optional()?)
+    }
+
+    /// Creates a task in status `todo`.
+    pub fn insert_task(&self, task: &NewTask<'_>) -> Result<Task, Error> {
+        Ok(self.tx.query_row(
+            concat!(
+                "INSERT INTO task (project_id, feature_id, title, body, status, priority, \
+                 created_at, updated_at, created_by) VALUES (?1, ?2, ?3, ?4, 'todo', ?5, ",
+                now!(),
+                ", ",
+                now!(),
+                ", ?6) RETURNING ",
+                task_columns!()
+            ),
+            params![
+                task.project_id,
+                task.feature_id,
+                task.title,
+                task.body,
+                task.priority,
+                task.created_by
+            ],
+            task_row,
+        )?)
+    }
+
+    /// The task with this id, with its tags.
+    pub fn task(&self, id: i64) -> Result<Option<Task>, Error> {
+        let task = self
+            .tx
+            .query_row(
+                concat!("SELECT ", task_columns!(), " FROM task WHERE id = ?1"),
+                [id],
+                task_row,
+            )
+            .optional()?;
+        task.map(|task| self.with_tags(task)).transpose()
+    }
+
+    /// The tasks of a project ordered by id, with their tags.
+    pub fn tasks(&self, project_id: i64) -> Result<Vec<Task>, Error> {
+        let mut stmt = self.tx.prepare_cached(concat!(
+            "SELECT ",
+            task_columns!(),
+            " FROM task WHERE project_id = ?1 ORDER BY id"
+        ))?;
+        let rows = stmt.query_map([project_id], task_row)?;
+        rows.map(|task| self.with_tags(task?)).collect()
+    }
+
+    /// Sets the status of a task and its update time; `closed_at` is set for `done` and
+    /// `dropped` and cleared otherwise.
+    pub fn set_status(&self, id: i64, status: Status) -> Result<(), Error> {
+        let changed = self.tx.execute(
+            concat!(
+                "UPDATE task SET status = ?2, updated_at = ",
+                now!(),
+                ", closed_at = CASE WHEN ?3 THEN ",
+                now!(),
+                " END WHERE id = ?1"
+            ),
+            params![id, status, status.is_closed()],
+        )?;
+        expect_one(changed, "task", id)
+    }
+
+    fn with_tags(&self, mut task: Task) -> Result<Task, Error> {
+        task.tags = self.tags(task.id)?;
+        Ok(task)
+    }
+
+    /// Adds a tag to a task; adding a tag it already has changes nothing.
+    pub fn add_tag(&self, task_id: i64, tag: &str) -> Result<(), Error> {
+        self.tx.execute(
+            "INSERT INTO task_tag (task_id, tag) VALUES (?1, ?2) ON CONFLICT DO NOTHING",
+            params![task_id, tag],
+        )?;
+        Ok(())
+    }
+
+    /// Removes a tag from a task.
+    pub fn remove_tag(&self, task_id: i64, tag: &str) -> Result<(), Error> {
+        self.tx.execute(
+            "DELETE FROM task_tag WHERE task_id = ?1 AND tag = ?2",
+            params![task_id, tag],
+        )?;
+        Ok(())
+    }
+
+    /// The tags of a task, sorted.
+    pub fn tags(&self, task_id: i64) -> Result<Vec<String>, Error> {
+        let mut stmt = self
+            .tx
+            .prepare_cached("SELECT tag FROM task_tag WHERE task_id = ?1 ORDER BY tag")?;
+        let rows = stmt.query_map([task_id], |row| row.get(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Appends a note to a task.
+    pub fn insert_note(
+        &self,
+        task_id: i64,
+        kind: NoteKind,
+        text: &str,
+        author: &str,
+    ) -> Result<Note, Error> {
+        Ok(self.tx.query_row(
+            concat!(
+                "INSERT INTO note (task_id, kind, text, author, created_at) VALUES (?1, ?2, ?3, ?4, ",
+                now!(),
+                ") RETURNING ",
+                note_columns!()
+            ),
+            params![task_id, kind, text, author],
+            note_row,
+        )?)
+    }
+
+    /// The notes of a task, oldest first.
+    pub fn notes(&self, task_id: i64) -> Result<Vec<Note>, Error> {
+        let mut stmt = self.tx.prepare_cached(concat!(
+            "SELECT ",
+            note_columns!(),
+            " FROM note WHERE task_id = ?1 ORDER BY id"
+        ))?;
+        let rows = stmt.query_map([task_id], note_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+}

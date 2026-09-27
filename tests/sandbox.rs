@@ -1,7 +1,8 @@
 //! Tests for the shared integration-test helper itself.
 //!
 //! They observe what a child process started through the helper actually receives,
-//! using the same code path as `Sandbox::tk` and `Sandbox::tk_without_db`.
+//! using the same code path as `Sandbox::tk` and `Sandbox::tk_without_db`, and where
+//! `tk` itself, started through those two, creates its database and which directory it runs in.
 #![cfg(test)]
 
 pub mod common;
@@ -198,4 +199,114 @@ fn helper_without_taskist_db_still_stays_inside_the_sandbox() {
         found.iter().all(|db| db == &path),
         "only the resolved database may appear: {found:?}"
     );
+}
+
+/// Runs `tk project ls`, which opens the database, and returns every database file in the sandbox.
+fn databases_after_project_ls(sandbox: &Sandbox, mut cmd: assert_cmd::Command) -> Vec<PathBuf> {
+    let mut before = Vec::new();
+    files_named_db(sandbox.root(), &mut before);
+    assert!(before.is_empty(), "{before:?}");
+    cmd.args(["project", "ls"])
+        .timeout(PROBE_TIMEOUT)
+        .assert()
+        .code(0);
+    let mut found = Vec::new();
+    files_named_db(sandbox.root(), &mut found);
+    found
+}
+
+#[test]
+fn tk_creates_the_database_at_taskist_db() {
+    let sandbox = Sandbox::new();
+    let found = databases_after_project_ls(&sandbox, sandbox.tk());
+    assert_eq!(found, [sandbox.db()]);
+}
+
+#[test]
+fn tk_without_taskist_db_creates_the_database_under_xdg_data_home() {
+    let sandbox = Sandbox::new();
+    let found = databases_after_project_ls(&sandbox, sandbox.tk_without_db());
+    assert_eq!(
+        found,
+        [sandbox.data_home().join("taskist").join("taskist.db")]
+    );
+}
+
+#[test]
+fn tk_without_taskist_db_or_xdg_data_home_creates_the_database_under_home() {
+    let sandbox = Sandbox::new();
+    let mut cmd = sandbox.tk_without_db();
+    cmd.env_remove("XDG_DATA_HOME");
+    let found = databases_after_project_ls(&sandbox, cmd);
+    assert_eq!(
+        found,
+        [sandbox
+            .home()
+            .join(".local")
+            .join("share")
+            .join("taskist")
+            .join("taskist.db")]
+    );
+}
+
+/// A child process that is stopped when the test ends, also when it fails.
+#[cfg(target_os = "linux")]
+struct Holder(std::process::Child);
+
+#[cfg(target_os = "linux")]
+impl Drop for Holder {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// `tk` started through the helper after its working directory was removed fails
+/// with the internal current-directory error, so it runs in that directory.
+///
+/// A holder process keeps the removed directory as its own working directory, and
+/// `work()` becomes a link to `/proc/<holder>/cwd`, through which the helper can still
+/// enter the removed directory.
+#[cfg(target_os = "linux")]
+#[test]
+fn tk_runs_in_the_work_directory() {
+    let sandbox = Sandbox::new();
+    for (name, make) in [
+        ("tk", Sandbox::tk as fn(&Sandbox) -> assert_cmd::Command),
+        ("tk_without_db", Sandbox::tk_without_db),
+    ] {
+        make(&sandbox)
+            .arg("--version")
+            .timeout(PROBE_TIMEOUT)
+            .assert()
+            .code(0);
+
+        let holder = Holder(
+            std::process::Command::new("/usr/bin/sleep")
+                .arg("60")
+                .current_dir(sandbox.work())
+                .stdin(std::process::Stdio::null())
+                .spawn()
+                .expect("start holder"),
+        );
+        std::fs::remove_dir_all(sandbox.work()).expect("remove work directory");
+        std::os::unix::fs::symlink(format!("/proc/{}/cwd", holder.0.id()), sandbox.work())
+            .expect("link work directory");
+        let output = make(&sandbox)
+            .arg("--version")
+            .timeout(PROBE_TIMEOUT)
+            .output()
+            .expect("run tk");
+        drop(holder);
+        std::fs::remove_file(sandbox.work()).expect("remove link");
+        std::fs::create_dir(sandbox.work()).expect("recreate work directory");
+
+        assert_eq!(output.status.code(), Some(1), "{name}: {output:?}");
+        assert!(output.stdout.is_empty(), "{name}: {output:?}");
+        let stderr = String::from_utf8(output.stderr).expect("utf-8");
+        assert!(
+            stderr.starts_with("error: cannot read the current directory: "),
+            "{name}: {stderr:?}"
+        );
+    }
 }

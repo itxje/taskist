@@ -7,6 +7,7 @@ use serde::Serialize;
 
 use crate::env::Env;
 use crate::error::Error;
+use crate::model::Project;
 
 /// How results and errors are written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,6 +107,22 @@ pub fn emit_success<T: Serialize>(format: Format, data: &T, human: &str) -> u8 {
     }
 }
 
+/// The human form of a project list: one name per line, or `no projects`.
+pub fn project_list_text(projects: &[Project]) -> String {
+    if projects.is_empty() {
+        return "no projects\n".to_owned();
+    }
+    projects
+        .iter()
+        .flat_map(|project| [project.name.as_str(), "\n"])
+        .collect()
+}
+
+/// Writes a project list to stdout and returns exit code 0.
+pub fn emit_projects(format: Format, projects: &[Project]) -> u8 {
+    emit_success(format, &projects, &project_list_text(projects))
+}
+
 /// Writes an error to stderr and returns its exit code.
 pub fn emit_failure(format: Format, error: &Error) -> u8 {
     // A failure to report the error has nowhere left to go; the exit code still tells.
@@ -128,9 +145,10 @@ mod tests {
 
     use serde_json::{Value, json};
 
-    use super::{Format, render_failure, render_success};
+    use super::{Format, project_list_text, render_failure, render_success};
     use crate::env::Env;
     use crate::error::Error;
+    use crate::model::Project;
 
     #[test]
     fn json_flag_wins_over_the_variable() {
@@ -202,6 +220,23 @@ mod tests {
         assert_eq!(
             render_failure(Format::Text, &Error::Conflict("project exists".into())).unwrap(),
             "error: project exists\n"
+        );
+    }
+
+    #[test]
+    fn project_list_text_names_one_project_per_line() {
+        assert_eq!(project_list_text(&[]), "no projects\n");
+        let project = |name: &str| Project {
+            id: 1,
+            name: name.into(),
+            path: None,
+            description: String::new(),
+            archived: false,
+            created_at: "2026-09-27T12:00:00.000Z".into(),
+        };
+        assert_eq!(
+            project_list_text(&[project("api"), project("web")]),
+            "api\nweb\n"
         );
     }
 }
