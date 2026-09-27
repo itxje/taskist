@@ -118,6 +118,102 @@ fn brief_lists_open_tasks_by_feature_and_flags_blocked_ones() {
 }
 
 #[test]
+fn a_multi_line_blocked_reason_stays_inside_its_item() {
+    let sandbox = Sandbox::new();
+    project(&sandbox, &["web"]);
+    add(&sandbox, &["Paginate /orders", "-p", "web"]);
+    sandbox.ok(&["block", "1", "first\n# api (9 open)\n- #1 forged"]);
+    let expected = "\
+# web (1 open)
+
+## (no feature)
+- #1 P2 blocked Paginate /orders
+
+Blocked:
+- #1 Paginate /orders: first
+  # api (9 open)
+  - #1 forged
+";
+    let text = stdout(
+        &sandbox
+            .tk()
+            .args(["brief", "-p", "web"])
+            .output()
+            .expect("run tk"),
+    );
+    assert_eq!(text, expected);
+    let data = ok_data(&json_run(&sandbox, &["brief", "-p", "web"]));
+    assert_eq!(data["text"], expected, "{data}");
+}
+
+/// Every line break a reader may honour: line feed first as the control, then CRLF, and
+/// the single terminators the model keeps out of titles.
+const BREAKS: [&str; 8] = [
+    "\n", "\r\n", "\r", "\u{0B}", "\u{0C}", "\u{85}", "\u{2028}", "\u{2029}",
+];
+
+/// The lines of `text`, split at every line break in [`BREAKS`], which is stricter than a
+/// `CommonMark` reader (0.31, section 2.1) that breaks at LF, CR and CRLF only.
+fn markdown_lines(text: &str) -> Vec<&str> {
+    text.split("\r\n")
+        .flat_map(|part| {
+            part.split([
+                '\n', '\r', '\u{0B}', '\u{0C}', '\u{85}', '\u{2028}', '\u{2029}',
+            ])
+        })
+        .collect()
+}
+
+/// Top-level headings and list items: lines at column 0 that open one.
+fn top_level_blocks(text: &str) -> Vec<&str> {
+    markdown_lines(text)
+        .into_iter()
+        .filter(|line| line.starts_with('#') || line.starts_with("- "))
+        .collect()
+}
+
+#[test]
+fn a_blocked_reason_breaks_at_every_line_terminator_inside_its_item() {
+    let expected = "\
+# web (1 open)
+
+## (no feature)
+- #1 P2 blocked Paginate /orders
+
+Blocked:
+- #1 Paginate /orders: first
+  # api (9 open)
+  - #1 forged
+";
+    assert_eq!(
+        top_level_blocks(expected),
+        [
+            "# web (1 open)",
+            "## (no feature)",
+            "- #1 P2 blocked Paginate /orders",
+            "- #1 Paginate /orders: first",
+        ]
+    );
+    for line_break in BREAKS {
+        let sandbox = Sandbox::new();
+        project(&sandbox, &["web"]);
+        add(&sandbox, &["Paginate /orders", "-p", "web"]);
+        let reason = ["first", "# api (9 open)", "- #1 forged"].join(line_break);
+        sandbox.ok(&["block", "1", &reason]);
+        let text = stdout(
+            &sandbox
+                .tk()
+                .args(["brief", "-p", "web"])
+                .output()
+                .expect("run tk"),
+        );
+        assert_eq!(text, expected, "{line_break:?}");
+        let data = ok_data(&json_run(&sandbox, &["brief", "-p", "web"]));
+        assert_eq!(data["text"], expected, "{line_break:?}");
+    }
+}
+
+#[test]
 fn brief_covers_every_project_without_scope_and_with_all_projects() {
     let sandbox = Sandbox::new();
     seed_brief(&sandbox);
@@ -433,6 +529,44 @@ fn export_md_lists_every_task_under_its_project_and_feature() {
     }
 }
 
+#[test]
+fn export_md_keeps_stored_text_inside_its_item_at_every_line_terminator() {
+    for line_break in BREAKS {
+        let sandbox = Sandbox::new();
+        let desc = ["about", "# forged project"].join(line_break);
+        project(&sandbox, &["web", "--desc", &desc]);
+        let body = ["x", "### forged feature"].join(line_break);
+        let id = add(
+            &sandbox,
+            &["Paginate /orders", "-p", "web", "--body", &body],
+        );
+        let note = ["y", "- forged item", "## forged section"].join(line_break);
+        sandbox.ok(&["note", &id, &note]);
+        let text = stdout(
+            &sandbox
+                .tk()
+                .args(["export", "--format", "md"])
+                .output()
+                .expect("run tk"),
+        );
+        let forged: Vec<&str> = top_level_blocks(&text)
+            .into_iter()
+            .filter(|line| line.contains("forged"))
+            .collect();
+        assert!(forged.is_empty(), "{line_break:?}: {forged:?} in {text:?}");
+        for continuation in [
+            "\n- description: about\n  # forged project\n",
+            "  - body: x\n    ### forged feature\n",
+            ": y\n    - forged item\n    ## forged section\n",
+        ] {
+            assert!(
+                text.contains(continuation),
+                "{line_break:?}: {continuation:?} missing from {text:?}"
+            );
+        }
+    }
+}
+
 fn write_file(sandbox: &Sandbox, name: &str, text: &str) -> String {
     let path = sandbox.root().join(name);
     std::fs::write(&path, text).expect("write import file");
@@ -552,6 +686,104 @@ fn import_without_a_resolved_project_names_the_flag() {
     let message = err_message(&output, 2, "usage");
     assert!(message.contains("line 2"), "{message}");
     assert!(message.contains("-p/--project"), "{message}");
+    assert_eq!(task_count(&sandbox), 0);
+}
+
+/// The line numbers a message names: every number that follows the word `line`.
+fn line_numbers(message: &str) -> Vec<&str> {
+    message
+        .split("line ")
+        .skip(1)
+        .map(|rest| {
+            rest.split(|c: char| !c.is_ascii_digit())
+                .next()
+                .unwrap_or("")
+        })
+        .collect()
+}
+
+#[test]
+fn an_import_error_names_only_the_line_of_the_file() {
+    assert_eq!(line_numbers("line 3: x at line 1 column 2"), ["3", "1"]);
+    let cases = [
+        ("{\"title\": \"Good\"}\n\n{\"title\": \"Broken\"\n", "3"),
+        (
+            "{\"title\": \"Good\"}\n{\"title\": \"Extra\", \"owner\": \"x\"}\n",
+            "2",
+        ),
+        ("{\"title\": \"Good\"}\n{\"pri\": 1}\n", "2"),
+    ];
+    for (text, line) in cases {
+        let sandbox = Sandbox::new();
+        project(&sandbox, &["web"]);
+        let file = write_file(&sandbox, "tasks.jsonl", text);
+        let output = json_run(&sandbox, &["import", &file, "-p", "web"]);
+        let message = err_message(&output, 2, "usage");
+        assert!(message.starts_with(&format!("line {line}: ")), "{message}");
+        assert_eq!(line_numbers(&message), [line], "{message}");
+        assert_eq!(task_count(&sandbox), 0);
+    }
+}
+
+#[test]
+fn a_malformed_import_is_refused_before_the_database_is_opened() {
+    let sandbox = Sandbox::new();
+    let file = write_file(
+        &sandbox,
+        "tasks.jsonl",
+        "{\"title\": \"Good\"}\n{\"title\": \"Broken\"\n",
+    );
+    // Calibration: the sandbox starts without a database file.
+    assert!(!sandbox.db().exists());
+    let output = json_run(&sandbox, &["import", &file, "-p", "web"]);
+    let message = err_message(&output, 2, "usage");
+    assert!(message.starts_with("line 2: "), "{message}");
+    assert!(!sandbox.db().exists(), "the import created the database");
+}
+
+#[test]
+fn a_malformed_import_is_a_usage_error_on_a_database_that_cannot_be_opened() {
+    let sandbox = Sandbox::new();
+    let file = write_file(
+        &sandbox,
+        "tasks.jsonl",
+        "{\"title\": \"Good\"}\n{\"title\": \"Broken\"\n",
+    );
+    project(&sandbox, &["web"]);
+    sandbox.sql("PRAGMA user_version = 99", []);
+    // Calibration: the database is refused once it is opened.
+    err_message(
+        &json_run(&sandbox, &["ls", "-p", "web"]),
+        1,
+        "unsupported_schema",
+    );
+    let output = json_run(&sandbox, &["import", &file, "-p", "web"]);
+    let message = err_message(&output, 2, "usage");
+    assert!(message.starts_with("line 2: "), "{message}");
+}
+
+#[test]
+fn import_refuses_an_unknown_project_flag_or_variable() {
+    let sandbox = Sandbox::new();
+    project(&sandbox, &["web"]);
+    let file = write_file(
+        &sandbox,
+        "tasks.jsonl",
+        "{\"title\": \"Good\", \"project\": \"web\"}\n",
+    );
+    let output = json_run(&sandbox, &["import", &file, "-p", "nosuch"]);
+    let message = err_message(&output, 3, "not_found");
+    assert!(message.contains("nosuch"), "{message}");
+    assert_eq!(task_count(&sandbox), 0);
+
+    let output = sandbox
+        .tk()
+        .args(["--json", "import", &file])
+        .env("TASKIST_PROJECT", "nosuch")
+        .output()
+        .expect("run tk");
+    let message = err_message(&output, 3, "not_found");
+    assert!(message.contains("nosuch"), "{message}");
     assert_eq!(task_count(&sandbox), 0);
 }
 
