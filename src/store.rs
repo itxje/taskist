@@ -43,6 +43,17 @@ impl Store {
     /// Sets, in this order, the busy timeout, WAL journal mode, foreign keys and
     /// `synchronous = NORMAL`, then applies pending migrations. A database with a newer
     /// schema is refused with [`Error::UnsupportedSchema`] before anything is written to it.
+    ///
+    /// ```
+    /// use taskist::store::Store;
+    ///
+    /// let dir = tempfile::tempdir()?;
+    /// let mut store = Store::open(&dir.path().join("new").join("tk.db"))?;
+    /// let project = store.write(|tx| tx.insert_project("web", None, ""))?;
+    /// let found = store.read(|tx| tx.project_by_name("web"))?;
+    /// assert_eq!(found, Some(project));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn open(path: &Path) -> Result<Self, Error> {
         create_parent_dirs(path)?;
         let mut conn = Connection::open(path)?;

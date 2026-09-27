@@ -125,6 +125,23 @@ fn refuse_used_path(tx: &crate::store::Tx<'_>, path: &str, own: Option<i64>) -> 
 }
 
 /// `tk project add`.
+///
+/// ```
+/// use std::ffi::OsString;
+/// use taskist::command::project;
+/// use taskist::env::Env;
+///
+/// let dir = tempfile::tempdir()?;
+/// let env = Env::new(
+///     [(OsString::from("TASKIST_DB"), dir.path().join("tk.db").into_os_string())],
+///     dir.path().to_path_buf(),
+///     false,
+/// );
+/// let added = project::add(&env, "web", Some(dir.path()), Some("Storefront"))?;
+/// assert_eq!(added.project.name, "web");
+/// assert_eq!(project::list(&env, false)?.projects.len(), 1);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn add(
     env: &Env,
     name: &str,

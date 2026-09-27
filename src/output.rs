@@ -17,6 +17,7 @@ use crate::command::transition::TransitionData;
 use crate::command::{FeatureView, ProjectView, TaskView};
 use crate::env::Env;
 use crate::error::Error;
+use crate::guide::Document;
 use crate::model::Status;
 
 /// How results and errors are written.
@@ -269,16 +270,21 @@ pub fn export_text(export: &Export) -> String {
     export.text().to_owned()
 }
 
+/// The human form of `tk guide` and `tk completions`: the document itself.
+pub fn document_text(document: &Document) -> String {
+    document.text.clone()
+}
+
 /// The human form of `tk import`: the number of created tasks and their ids.
 pub fn import_text(imported: &Imported) -> String {
     let count = plural(
-        i64::try_from(imported.ids.len()).unwrap_or(i64::MAX),
+        i64::try_from(imported.created.len()).unwrap_or(i64::MAX),
         "task",
     );
-    if imported.ids.is_empty() {
+    if imported.created.is_empty() {
         return format!("imported {count}\n");
     }
-    let ids: Vec<String> = imported.ids.iter().map(|id| format!("#{id}")).collect();
+    let ids: Vec<String> = imported.created.iter().map(|id| format!("#{id}")).collect();
     format!("imported {count}: {}\n", ids.join(", "))
 }
 

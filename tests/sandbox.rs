@@ -21,16 +21,24 @@ const CAT: &str = "/usr/bin/cat";
 /// Upper bound for a probe; a child waiting on an open stdin fails instead of hanging.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The environment a child received, as printed by `env`, in output order.
+/// The environment a child received, as printed by `env`, in output order, without the
+/// coverage variables the helper passes on unchanged from this process; any other value
+/// of those names is kept and so reported as a violation.
 fn observed_env(mut cmd: assert_cmd::Command) -> Vec<(String, String)> {
     let output = cmd.timeout(PROBE_TIMEOUT).output().expect("run env");
     assert!(output.status.success(), "env failed: {output:?}");
+    let passed_on = common::coverage_vars();
     String::from_utf8(output.stdout)
         .expect("utf-8 environment")
         .lines()
         .map(|line| {
             let (name, value) = line.split_once('=').expect("NAME=value line");
             (name.to_owned(), value.to_owned())
+        })
+        .filter(|(name, value)| {
+            !passed_on.iter().any(|(passed, passed_value)| {
+                passed == name.as_str() && passed_value == value.as_str()
+            })
         })
         .collect()
 }
