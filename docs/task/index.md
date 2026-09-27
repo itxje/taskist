@@ -35,3 +35,4 @@ Each task is a single line linking to its detail file. All detailed information 
 
 - [-] [**20260927-1154-taskist-mvp Design and build the taskist CLI MVP**](20260927-1154-taskist-mvp.md) `P1`
 - [x] [**20260927-1230-repository-foundation Add repository foundation and the tk entry point**](20260927-1230-repository-foundation.md) `P1`
+- [x] [**20260927-1300-sqlite-store Add the SQLite store and the domain model**](20260927-1300-sqlite-store.md) `P1`
