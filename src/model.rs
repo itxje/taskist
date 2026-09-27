@@ -232,13 +232,20 @@ pub fn validate_name(what: &str, value: &str) -> Result<(), Error> {
     }
 }
 
+/// Characters that end a line: line feed, vertical tab, form feed, carriage return, next
+/// line, line separator and paragraph separator. All of them are white space, so trimming
+/// removes them at both ends of a title.
+const LINE_TERMINATORS: [char; 7] = [
+    '\n', '\u{0B}', '\u{0C}', '\r', '\u{85}', '\u{2028}', '\u{2029}',
+];
+
 /// Trims a task title and checks that it is non-empty and a single line.
 pub fn normalize_title(value: &str) -> Result<String, Error> {
     let title = value.trim();
     if title.is_empty() {
         return Err(Error::Usage("the title must not be empty".into()));
     }
-    if title.contains(['\n', '\r']) {
+    if title.contains(LINE_TERMINATORS) {
         return Err(Error::Usage("the title must be a single line".into()));
     }
     Ok(title.to_owned())
@@ -456,6 +463,29 @@ mod tests {
             let err = validate_name("tag", name).unwrap_err();
             assert!(matches!(err, Error::Usage(_)), "{name:?}: {err:?}");
             assert!(err.to_string().starts_with("invalid tag "), "{err}");
+        }
+    }
+
+    #[test]
+    fn a_title_with_any_line_terminator_inside_is_refused() {
+        // Calibration: a line feed inside a title is refused.
+        assert!(matches!(normalize_title("one\ntwo"), Err(Error::Usage(_))));
+        assert!(super::LINE_TERMINATORS.iter().all(|c| c.is_whitespace()));
+        for (name, terminator) in [
+            ("carriage return", '\r'),
+            ("vertical tab", '\u{0B}'),
+            ("form feed", '\u{0C}'),
+            ("next line", '\u{85}'),
+            ("line separator", '\u{2028}'),
+            ("paragraph separator", '\u{2029}'),
+        ] {
+            let result = normalize_title(&format!("one{terminator}two"));
+            assert!(matches!(result, Err(Error::Usage(_))), "{name}: {result:?}");
+            assert_eq!(
+                normalize_title(&format!("{terminator}one{terminator}")).unwrap(),
+                "one",
+                "{name} at the ends is trimmed"
+            );
         }
     }
 
