@@ -155,3 +155,32 @@ fn only_main_reads_the_process_environment() {
         }
     }
 }
+
+#[test]
+fn rusqlite_is_bundled_and_justified() {
+    let manifest = package_file("Cargo.toml");
+    let lines: Vec<&str> = manifest.lines().collect();
+    let dependencies = lines
+        .iter()
+        .position(|line| line.trim() == "[dependencies]")
+        .expect("[dependencies] table");
+    let entry = lines
+        .iter()
+        .enumerate()
+        .skip(dependencies + 1)
+        .take_while(|(_, line)| !line.trim_start().starts_with('['))
+        .find(|(_, line)| line.trim_start().starts_with("rusqlite = "))
+        .map(|(index, _)| index)
+        .expect("rusqlite in [dependencies]");
+    assert!(
+        lines[entry].contains(r#"features = ["bundled"]"#),
+        "rusqlite must enable bundled: {}",
+        lines[entry]
+    );
+    let comment = lines[entry - 1].trim();
+    assert!(
+        comment.starts_with("# JUSTIFICATION:")
+            && comment.contains("docs/decisions/2026-09-27-bundled-sqlite.md"),
+        "the line before rusqlite must be its justification: {comment}"
+    );
+}

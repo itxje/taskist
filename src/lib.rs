@@ -4,16 +4,19 @@
 #![forbid(unsafe_code)]
 
 pub mod cli;
+pub mod command;
 pub mod env;
 pub mod error;
+pub mod model;
 pub mod output;
+pub mod store;
 
 use std::ffi::{OsStr, OsString};
 
 use clap::Parser;
 use clap::error::ErrorKind;
 
-use crate::cli::Cli;
+use crate::cli::{Cli, Command, ProjectCommand};
 use crate::env::Env;
 use crate::error::Error;
 use crate::output::Format;
@@ -34,7 +37,18 @@ pub fn run(args: &[OsString], env: &Env) -> u8 {
             return fail(args, env.var("TASKIST_FORMAT"), &Error::from(err));
         }
     };
-    match cli.command {}
+    let format = match Format::select(cli.json, env) {
+        Ok(format) => format,
+        Err(err) => return output::emit_failure(Format::Text, &err),
+    };
+    match cli.command {
+        Command::Project {
+            command: ProjectCommand::Ls,
+        } => match command::project_list(env) {
+            Ok(projects) => output::emit_projects(format, &projects),
+            Err(err) => output::emit_failure(format, &err),
+        },
+    }
 }
 
 /// Reports a failure found before a command ran, such as an argument parsing failure

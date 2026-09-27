@@ -61,6 +61,27 @@ impl From<clap::Error> for Error {
     }
 }
 
+impl From<rusqlite::Error> for Error {
+    /// A violated uniqueness is a conflict, a violated check a usage error, a missing
+    /// referenced row not found; every other database failure is internal.
+    fn from(err: rusqlite::Error) -> Self {
+        use rusqlite::ffi;
+
+        let message = err.to_string();
+        match err.sqlite_error() {
+            Some(sqlite) => match sqlite.extended_code {
+                ffi::SQLITE_CONSTRAINT_UNIQUE | ffi::SQLITE_CONSTRAINT_PRIMARYKEY => {
+                    Self::Conflict(message)
+                }
+                ffi::SQLITE_CONSTRAINT_CHECK => Self::Usage(message),
+                ffi::SQLITE_CONSTRAINT_FOREIGNKEY => Self::NotFound(message),
+                _ => Self::Internal(format!("database error: {message}")),
+            },
+            None => Self::Internal(format!("database error: {message}")),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Error;
@@ -121,5 +142,15 @@ mod tests {
             .to_string(),
             "database schema version 9 is newer than the supported version 1"
         );
+    }
+
+    #[test]
+    fn database_failures_other_than_constraints_are_internal() {
+        let err = Error::from(rusqlite::Error::QueryReturnedNoRows);
+        assert!(matches!(err, Error::Internal(_)), "{err:?}");
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let err = Error::from(conn.execute("DELETE FROM missing_table", []).unwrap_err());
+        assert!(matches!(err, Error::Internal(_)), "{err:?}");
+        assert!(err.to_string().starts_with("database error: "), "{err}");
     }
 }

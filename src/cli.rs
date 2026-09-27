@@ -17,4 +17,18 @@ pub struct Cli {
 
 /// The commands `tk` understands.
 #[derive(Debug, Subcommand)]
-pub enum Command {}
+pub enum Command {
+    /// Manage projects.
+    Project {
+        /// The project command to run.
+        #[command(subcommand)]
+        command: ProjectCommand,
+    },
+}
+
+/// The `tk project` commands.
+#[derive(Debug, Subcommand)]
+pub enum ProjectCommand {
+    /// List projects.
+    Ls,
+}
