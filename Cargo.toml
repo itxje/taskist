@@ -1,6 +1,6 @@
 [package]
 name = "taskist"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.96"
 description = "Track unfinished and follow-up work across many projects from one terminal command"
