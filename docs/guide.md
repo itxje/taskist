@@ -23,9 +23,12 @@ examples below run in order against an empty database, from a directory that bec
 | `TERM` | Colour on a terminal needs `TERM` set to anything but `dumb`, or `CLICOLOR`, or `CI`. |
 | `CI` | Set: colour is allowed on a terminal. |
 
-Empty values count as unset. With no usable database location, commands that need the
-database fail with `usage`. The database is created on first use. To back it up, copy the
-file; `tk export` cannot be imported back.
+An empty `TASKIST_DB`, `XDG_DATA_HOME`, `HOME`, `TASKIST_PROJECT`, `TASKIST_ACTOR`,
+`USER`, `NO_COLOR` or `CLICOLOR_FORCE` counts as unset. An empty `CLICOLOR`, `TERM` or `CI`
+counts as set. An empty `TASKIST_FORMAT` is a `usage` error, like any value other than
+`json` or `text`. With no usable database location, commands that need the database fail
+with `usage`. The database is created on first use. To back it up, copy the file;
+`tk export` cannot be imported back.
 
 ## Scope resolution
 

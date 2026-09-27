@@ -57,7 +57,7 @@ are `path::function`.
 | 3 | Invalid transitions and unknown ids return the documented exit codes and JSON errors. | `tests/transition.rs::an_invalid_transition_exits_4_and_changes_nothing`, `tests/transition.rs::an_unknown_id_is_not_found_for_every_command`, `tests/task.rs::show_of_an_unknown_id_is_not_found`, `src/model.rs::transition_table_matches_the_design_for_every_pair`, `src/error.rs::every_variant_maps_to_its_documented_code_and_exit_code` |
 | 4 | Two concurrent writers complete without lost writes or lock errors. | `tests/concurrency.rs::concurrent_writer_processes_lose_no_task_and_report_no_lock_error`, `tests/store.rs::concurrent_first_opens_all_succeed_and_create_the_schema_once` |
 | 5 | `tk guide` output alone is enough for an agent to add, list, update and close tasks. | `tests/guide.rs::the_guide_alone_operates_the_tool`, `tests/guide.rs::the_guide_names_every_subcommand_variable_error_code_and_exit_code` |
-| 6 | Unit and integration tests with at least 80% line coverage; lint clean. | `tests/policy.rs::rust_lint_table_matches_policy`, `tests/policy.rs::clippy_lint_table_matches_policy`, `tests/policy.rs::both_crate_roots_forbid_unsafe_code` |
+| 6 | Unit and integration tests with at least 80% line coverage; lint clean. | Lint: `tests/policy.rs::rust_lint_table_matches_policy`, `tests/policy.rs::clippy_lint_table_matches_policy`, `tests/policy.rs::both_crate_roots_forbid_unsafe_code`. Coverage: the `cargo llvm-cov nextest` measurement over the whole package, whose figure is recorded in `docs/changelog.md`. |
 
 Line coverage is measured with `cargo llvm-cov nextest` over the whole package; the figure
 of the MVP build is recorded in `docs/changelog.md`. `tests/common/mod.rs` passes
