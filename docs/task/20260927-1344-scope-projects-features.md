@@ -1,6 +1,6 @@
 # 20260927-1344-scope-projects-features Add scope resolution and the project and feature commands
 
-- **status**: in progress
+- **status**: completed
 - **priority**: P1
 - **owner**: (unassigned)
 - **createdAt**: 2026-09-27 13:44
@@ -85,7 +85,8 @@ Adding scope resolution and the project and feature commands
   grouping and the other listing options belong to the task commands.
 - Human output: `project ls` prints `name  (N open)` with `  archived` when archived;
   `feature ls` prints a project heading and `  name  O open / T total` lines; `ls` prints a
-  `name  (N open)` heading per project and `  #id  Pn  status  title` lines.
+  `name  (N open)` heading per project and one line per task with `#id`, the priority as
+  `P0`..`P3`, the status and the title.
 - Integration tests seed tasks and features through the library `Store` (the sandbox
   database), because no command creates tasks yet; the commands under test read and change
   them only through `tk`.
@@ -106,5 +107,8 @@ Adding scope resolution and the project and feature commands
   task, `tk` runs through the helper in a cleared environment, so the profiles of the binary
   runs are not collected; the command modules are exercised by the integration tests but show
   as uncovered in this figure.
-- Open: the integration test that reads an actor stored through the binary needs a command
-  that stores one (`tk add` or `tk note`); none exists in this change.
+- Actor precedence (`--by`, `TASKIST_ACTOR`, `USER`, `unknown`) is shown by unit tests on
+  hand-built environments (`actor_prefers_the_flag_then_taskist_actor_then_user`,
+  `empty_actor_values_count_as_unset`). The check through the binary, which reads
+  `created_by`, follows with task creation, because no command in this change stores an
+  actor.
