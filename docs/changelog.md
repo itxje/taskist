@@ -39,3 +39,7 @@ Task `20260927-1620-status-transitions` completed: `start`, `block`, `done`, `dr
 ## 2026-09-27 17:00 [progress]
 
 Task `20260927-1700-brief-export-import` completed: `brief` prints a markdown digest of open work per project and feature with a separate list of blocked tasks and their reasons; `export` writes every project, feature, task (closed ones included), tag and note to stdout as a versioned JSON document or as markdown, restricted only by `-p`; `import` creates one task per JSON line from a file or stdin, validates every line before opening the database, and applies the whole file in one transaction, naming the line of the first error.
+
+## 2026-09-27 18:00 [progress]
+
+Task `20260927-1800-exchange-fixes` completed: stored text written into markdown (`brief` blocked reasons, and the project description, task body and note text of `export --format md`) is broken at every line terminator and indented under its item, so it cannot form a heading or list item; an import error names only the line of the file, with the parser's position given as a column; `import` validates every line before the database is opened and resolves a project named by `-p` or `TASKIST_PROJECT` before any task is created, so an unknown one fails with `not_found` and creates nothing.
