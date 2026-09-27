@@ -485,11 +485,11 @@ fn entries(env: &Env, bytes: &[u8], by: Option<&str>) -> Result<Vec<Entry>, Erro
 
 /// `tk import`: creates one `todo` task per non-blank JSON line, all in one transaction.
 ///
-/// A line's `project` must exist and overrides the resolved scope. A project named by `-p`
-/// or `TASKIST_PROJECT` is resolved before any line is read, so an unknown one fails even
-/// when every line names its own; the directory is read only for the first line without a
-/// project. Any bad line fails the import, changes nothing, and the error names its line
-/// number.
+/// Every line is parsed and validated before the store is opened. A line's `project` must
+/// exist and overrides the resolved scope. A project named by `-p` or `TASKIST_PROJECT` is
+/// resolved before any task is created, so an unknown one fails even when every line names
+/// its own; the directory is read only for the first line without a project. Any bad line
+/// fails the import, changes nothing, and the error names its line number.
 pub fn import(
     env: &Env,
     file: &Path,
@@ -500,15 +500,14 @@ pub fn import(
         || env
             .var("TASKIST_PROJECT")
             .is_some_and(|value| !value.is_empty());
+    let entries = entries(env, &read_source(env, file)?, by)?;
     let target = scope::target(env, request)?;
-    let bytes = read_source(env, file)?;
     open_store(env)?.write(|tx| {
         let mut scoped = if named {
             Some(scope::resolve(tx, env, &target)?.require()?)
         } else {
             None
         };
-        let entries = entries(env, &bytes, by)?;
         let ids = entries
             .iter()
             .map(|entry| {

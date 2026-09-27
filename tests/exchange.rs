@@ -621,6 +621,43 @@ fn an_import_error_names_only_the_line_of_the_file() {
 }
 
 #[test]
+fn a_malformed_import_is_refused_before_the_database_is_opened() {
+    let sandbox = Sandbox::new();
+    let file = write_file(
+        &sandbox,
+        "tasks.jsonl",
+        "{\"title\": \"Good\"}\n{\"title\": \"Broken\"\n",
+    );
+    // Calibration: the sandbox starts without a database file.
+    assert!(!sandbox.db().exists());
+    let output = json_run(&sandbox, &["import", &file, "-p", "web"]);
+    let message = err_message(&output, 2, "usage");
+    assert!(message.starts_with("line 2: "), "{message}");
+    assert!(!sandbox.db().exists(), "the import created the database");
+}
+
+#[test]
+fn a_malformed_import_is_a_usage_error_on_a_database_that_cannot_be_opened() {
+    let sandbox = Sandbox::new();
+    let file = write_file(
+        &sandbox,
+        "tasks.jsonl",
+        "{\"title\": \"Good\"}\n{\"title\": \"Broken\"\n",
+    );
+    project(&sandbox, &["web"]);
+    sandbox.sql("PRAGMA user_version = 99", []);
+    // Calibration: the database is refused once it is opened.
+    err_message(
+        &json_run(&sandbox, &["ls", "-p", "web"]),
+        1,
+        "unsupported_schema",
+    );
+    let output = json_run(&sandbox, &["import", &file, "-p", "web"]);
+    let message = err_message(&output, 2, "usage");
+    assert!(message.starts_with("line 2: "), "{message}");
+}
+
+#[test]
 fn import_refuses_an_unknown_project_flag_or_variable() {
     let sandbox = Sandbox::new();
     project(&sandbox, &["web"]);

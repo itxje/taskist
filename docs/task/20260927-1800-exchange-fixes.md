@@ -49,10 +49,15 @@ Fixing the brief reason layout, import error line numbers and import scope resol
 - Render the reason through `continued(reason, "  ")`, the helper the md export uses.
 - Map a parse error to `column N: <message>`: the message with the parser's exact
   ` at line L column C` suffix removed, so the only line number is the file's.
-- When `-p` or `TASKIST_PROJECT` names the project, resolve and require it inside the write
-  transaction before any line is parsed. Directory scope stays lazy: the current directory is
-  read only for the first line without a project, and a missing scope is still the `usage`
-  error naming `-p/--project`.
+- Keep the order of the import: read the file, parse and validate every line, and only then
+  open the store, so a bad line is a `usage` error that neither creates the database file
+  nor depends on the database being readable. Inside the write transaction, before any task
+  is created, resolve and require the project named by `-p` or `TASKIST_PROJECT`. Directory
+  scope stays lazy: the current directory is read only for the first line without a
+  project, and a missing scope is still the `usage` error naming `-p/--project`.
+- Whether the flag or the variable names the project is decided in `import` with the same
+  condition `scope::target` uses, because the target keeps its choice private; an accessor
+  on the target in `src/scope.rs` would remove this duplication.
 
 ### Results
 
@@ -63,8 +68,14 @@ Fixing the brief reason layout, import error line numbers and import scope resol
     `["3"]`.
   - `import_refuses_an_unknown_project_flag_or_variable`: exit 0 with `{"ids":[1]}`, expected
     exit 3.
+  - `a_malformed_import_is_refused_before_the_database_is_opened`: with the scope resolved
+    before the lines were parsed, a fresh environment reported `not_found` (exit 3) for the
+    named project and had created the database file.
+  - `a_malformed_import_is_a_usage_error_on_a_database_that_cannot_be_opened`: on a database
+    with `user_version` 99 the import reported `unsupported_schema` (exit 1), not `usage`.
 - After the fix these pass together with the unit test
   `parse_errors_carry_a_column_and_no_line` and the unchanged
   `import_without_a_resolved_project_names_the_flag`.
 - `cargo fmt --all --check`, `cargo clippy --all-targets --locked` and
-  `cargo nextest run --locked --no-tests=pass` pass; nextest reported 199 passed, 0 skipped.
+  `cargo nextest run --locked --no-tests=pass` pass; nextest reported 201 passed, 0 skipped.
+- `typos`, `cargo shear` and `cargo deny check` pass.
