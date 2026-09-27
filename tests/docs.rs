@@ -1,5 +1,6 @@
 //! Checks on the repository documents: the acceptance map of `docs/architecture.md`
-//! names tests that exist, and the README states the backup rule.
+//! names tests that exist, the README states the backup rule, and the guide and the
+//! README state which empty environment values count as unset.
 #![cfg(test)]
 
 use std::path::{Path, PathBuf};
@@ -61,6 +62,95 @@ fn the_map_reader_reads_a_known_table() {
     );
     assert!(defines(&root().join("tests/docs.rs"), "defines"));
     assert!(!defines(&root().join("tests/docs.rs"), "no_such_function"));
+}
+
+/// The row of criterion `number` in the acceptance map, as written.
+fn acceptance_row(architecture: &str, number: u32) -> &str {
+    architecture
+        .lines()
+        .find(|line| line.starts_with(&format!("| {number} |")))
+        .expect("a row for the criterion")
+}
+
+/// The backticked names in the sentence of `text` that ends with `ending`.
+fn names_in_sentence(text: &str, ending: &str) -> Vec<String> {
+    let sentence = text
+        .split(". ")
+        .map(|sentence| sentence.replace('\n', " "))
+        .find(|sentence| sentence.trim_end_matches('.').ends_with(ending))
+        .expect("a sentence ending with the given words");
+    let mut names: Vec<String> = sentence
+        .split('`')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_owned)
+        .collect();
+    names.sort();
+    names
+}
+
+fn sorted(names: &[&str]) -> Vec<String> {
+    let mut names: Vec<String> = names.iter().map(|name| (*name).to_owned()).collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn the_sentence_reader_reads_a_known_text() {
+    let text = "Intro `A`. An empty `X` or\n`Y` counts as unset. An empty `Z` counts as set.";
+    assert_eq!(
+        names_in_sentence(text, "counts as unset"),
+        sorted(&["X", "Y"])
+    );
+    assert_eq!(names_in_sentence(text, "counts as set"), sorted(&["Z"]));
+}
+
+#[test]
+fn the_guide_and_readme_name_which_empty_values_count_as_unset() {
+    // Empty values of the colour variables follow `anstream`: `NO_COLOR` and
+    // `CLICOLOR_FORCE` need a non-empty value, `CLICOLOR`, `TERM` and `CI` only need to be set.
+    let unset = sorted(&[
+        "TASKIST_DB",
+        "XDG_DATA_HOME",
+        "HOME",
+        "TASKIST_PROJECT",
+        "TASKIST_ACTOR",
+        "USER",
+        "NO_COLOR",
+        "CLICOLOR_FORCE",
+    ]);
+    let set = sorted(&["CLICOLOR", "TERM", "CI"]);
+    for document in ["docs/guide.md", "README.md"] {
+        let text = read(document);
+        assert!(
+            !text.contains("Empty values count as unset"),
+            "{document} claims that every empty value counts as unset"
+        );
+        assert_eq!(
+            names_in_sentence(&text, "counts as unset"),
+            unset,
+            "{document}"
+        );
+        assert_eq!(names_in_sentence(&text, "counts as set"), set, "{document}");
+    }
+}
+
+#[test]
+fn criterion_6_names_the_lint_tests_and_the_coverage_measurement() {
+    let architecture = read("docs/architecture.md");
+    let row = acceptance_row(&architecture, 6);
+    assert!(row.contains("`tests/policy.rs::"), "{row}");
+    assert!(row.contains("`cargo llvm-cov nextest`"), "{row}");
+    assert!(row.contains("whole package"), "{row}");
+    assert!(row.contains("`docs/changelog.md`"), "{row}");
+    let changelog = read("docs/changelog.md");
+    let figure = changelog
+        .split("`cargo llvm-cov nextest` over the whole package reports ")
+        .nth(1)
+        .and_then(|rest| rest.split('%').next())
+        .and_then(|figure| figure.parse::<f64>().ok())
+        .expect("a coverage figure in docs/changelog.md");
+    assert!(figure >= 80.0, "line coverage {figure}% is below 80%");
 }
 
 #[test]

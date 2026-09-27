@@ -54,7 +54,12 @@ tk ls --all-projects --json          # everything open, as one JSON envelope
 | `TASKIST_ACTOR` | Actor recorded on tasks and notes without `--by`; then `USER`, then `unknown`. |
 | `NO_COLOR`, `CLICOLOR`, `CLICOLOR_FORCE`, `TERM`, `CI` | Colour of human output, by the usual rules; JSON is never coloured. |
 
-Empty values count as unset. The project scope is, first match wins: `-p/--project`,
+An empty `TASKIST_DB`, `XDG_DATA_HOME`, `HOME`, `TASKIST_PROJECT`, `TASKIST_ACTOR`,
+`USER`, `NO_COLOR` or `CLICOLOR_FORCE` counts as unset. An empty `CLICOLOR`, `TERM` or `CI`
+counts as set. An empty `TASKIST_FORMAT` is a `usage` error, like any value other than
+`json` or `text`.
+
+The project scope is, first match wins: `-p/--project`,
 `TASKIST_PROJECT`, the project whose `--path` contains the current directory, none. Listing
 commands without a scope, or with `--all-projects`, cover every non-archived project.
 

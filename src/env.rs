@@ -107,7 +107,8 @@ impl Env {
     /// set; otherwise always when `CLICOLOR_FORCE` is set; otherwise never when `CLICOLOR`
     /// is `0`; otherwise only when stdout is a terminal and either `TERM` is set to
     /// anything but `dumb`, `CLICOLOR` is set, or `CI` is set. Empty `NO_COLOR` and
-    /// `CLICOLOR_FORCE` values count as unset.
+    /// `CLICOLOR_FORCE` values count as unset; empty `CLICOLOR`, `TERM` and `CI` values
+    /// count as set.
     pub fn colour(&self) -> bool {
         let clicolor = self.var("CLICOLOR").map(|value| value != "0");
         if self.non_empty("NO_COLOR").is_some() {
@@ -259,6 +260,32 @@ mod tests {
         assert!(!with(&[("NO_COLOR", "1"), ("CLICOLOR_FORCE", "1")], true));
         assert!(!with(&[("NO_COLOR", "1"), ("CLICOLOR_FORCE", "1")], false));
         assert!(with(&[("NO_COLOR", ""), ("CLICOLOR_FORCE", "1")], false));
+    }
+
+    #[test]
+    fn empty_colour_variables_follow_anstream() {
+        let with = |vars: &[(&str, &str)], terminal: bool| {
+            Env::new(
+                vars.iter()
+                    .map(|(name, value)| ((*name).into(), (*value).into())),
+                PathBuf::from("/"),
+                terminal,
+            )
+            .colour()
+        };
+        // Calibration: an unset environment is not coloured, on a terminal or a pipe.
+        assert!(!with(&[], true));
+        assert!(!with(&[], false));
+        // Empty NO_COLOR and CLICOLOR_FORCE count as unset.
+        assert!(with(&[("TERM", "xterm"), ("NO_COLOR", "")], true));
+        assert!(!with(&[("CLICOLOR_FORCE", "")], false));
+        assert!(!with(&[("CLICOLOR_FORCE", "")], true));
+        // Empty TERM, CI and CLICOLOR count as set and allow colour on a terminal.
+        assert!(with(&[("TERM", "")], true));
+        assert!(with(&[("CI", "")], true));
+        assert!(with(&[("CLICOLOR", "")], true));
+        assert!(with(&[("TERM", "dumb"), ("CLICOLOR", "")], true));
+        assert!(!with(&[("TERM", ""), ("CI", ""), ("CLICOLOR", "")], false));
     }
 
     #[test]
