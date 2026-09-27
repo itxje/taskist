@@ -59,3 +59,7 @@ Plan `20260927-1728-ci-and-release` approved: GitHub Actions CI runs the quality
 ## 2026-09-27 17:38 [progress]
 
 Task `20260927-1728-ci-and-release` completed: CI passes on `main` (quality gates, and static musl builds on native `x86_64` and `aarch64` runners that run `tk --version`). Release `v0.1.0` is published with `tk-0.1.0-x86_64-unknown-linux-musl.tar.gz`, `tk-0.1.0-aarch64-unknown-linux-musl.tar.gz` and `SHA256SUMS`; the downloaded aarch64 binary verifies against the checksums, is statically linked and runs.
+
+## 2026-09-27 18:00 [progress]
+
+Task `20260927-1800-release-raw-binaries` completed: a release publishes the static binaries themselves as `tk-x86_64-unknown-linux-musl` and `tk-aarch64-unknown-linux-musl` with `SHA256SUMS`, instead of `tar.gz` archives, so `releases/latest/download/tk-<target>` always names the newest build. Release `v0.1.0` now carries these assets (the binaries extracted unchanged from its archives, which were removed).

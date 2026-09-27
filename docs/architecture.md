@@ -71,9 +71,9 @@ towards it.
   static musl build for `x86_64` and `aarch64`, each on a native runner.
 - `.github/workflows/release.yml` runs on a `v*` tag: it checks that the tag matches the package
   version, builds `tk` with the `dist` profile for `x86_64-unknown-linux-musl` and
-  `aarch64-unknown-linux-musl` on native runners, and publishes one archive per target
-  (`tk`, `LICENSE`, `README.md`) with a `SHA256SUMS` file as a GitHub release. A tag with a
-  `-` suffix is published as a pre-release.
+  `aarch64-unknown-linux-musl` on native runners, and publishes the binaries themselves as
+  `tk-<target>` with a `SHA256SUMS` file as a GitHub release. A tag with a `-` suffix is
+  published as a pre-release.
 - `.github/scripts/build-static.sh` is the build both workflows share: `musl-gcc` compiles the
   bundled SQLite, the binary must have no program interpreter and no `NEEDED` entry, and it
   must run `tk --version` on the runner.

@@ -9,18 +9,18 @@ The full usage guide ships inside the binary: `tk guide` prints it, and it is ke
 
 ## Install a release binary
 
-Each release on <https://github.com/itxje/taskist/releases> carries static Linux binaries
-(musl, no runtime dependencies) for `x86_64` and `aarch64`, and a `SHA256SUMS` file.
+Each release on <https://github.com/itxje/taskist/releases> carries the static Linux binaries
+themselves (musl, no runtime dependencies), `tk-x86_64-unknown-linux-musl` and
+`tk-aarch64-unknown-linux-musl`, and a `SHA256SUMS` file. The `latest/download` URLs always
+name the newest release.
 
 ```bash
-version=0.1.0
 target=x86_64-unknown-linux-musl   # or aarch64-unknown-linux-musl
-base=https://github.com/itxje/taskist/releases/download/v$version
-curl -fLO "$base/tk-$version-$target.tar.gz"
+base=https://github.com/itxje/taskist/releases/latest/download
+curl -fLO "$base/tk-$target"
 curl -fLO "$base/SHA256SUMS"
 sha256sum --check --ignore-missing SHA256SUMS
-tar -xzf "tk-$version-$target.tar.gz"
-install -m 0755 "tk-$version-$target/tk" ~/.local/bin/tk
+install -m 0755 "tk-$target" ~/.local/bin/tk
 tk --version
 ```
 

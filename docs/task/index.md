@@ -45,3 +45,4 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**20260927-1900-guide-docs-coverage Add the guide, completions, documentation, concurrency test and coverage**](20260927-1900-guide-docs-coverage.md) `P1`
 - [x] [**20260927-2000-empty-values-coverage-map Document which empty environment values count as unset and name the coverage measurement in the acceptance map**](20260927-2000-empty-values-coverage-map.md) `P1`
 - [x] [**20260927-1728-ci-and-release Add GitHub CI and static musl release binaries**](20260927-1728-ci-and-release.md) `P1`
+- [x] [**20260927-1800-release-raw-binaries Publish release binaries without archives**](20260927-1800-release-raw-binaries.md) `P1`

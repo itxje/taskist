@@ -40,7 +40,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     env:
-      ARCHIVE: tk-${{ needs.version.outputs.version }}-${{ matrix.target }}
+      ASSET: tk-${{ matrix.target }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install musl-gcc and the target
@@ -51,15 +51,12 @@ jobs:
           rustup target add "${{ matrix.target }}"
       - name: Build
         run: ./.github/scripts/build-static.sh "${{ matrix.target }}"
-      - name: Package
-        run: |
-          mkdir "$ARCHIVE"
-          cp "target/${{ matrix.target }}/dist/tk" LICENSE README.md "$ARCHIVE/"
-          tar -czf "$ARCHIVE.tar.gz" "$ARCHIVE"
+      - name: Name the binary after its target
+        run: cp "target/${{ matrix.target }}/dist/tk" "$ASSET"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ env.ARCHIVE }}
-          path: ${{ env.ARCHIVE }}.tar.gz
+          name: ${{ env.ASSET }}
+          path: ${{ env.ASSET }}
           if-no-files-found: error
 
   publish:
@@ -79,11 +76,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           cd dist
-          sha256sum -- *.tar.gz > SHA256SUMS
+          sha256sum -- tk-* > SHA256SUMS
           cat SHA256SUMS
           prerelease=()
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
             prerelease=(--prerelease)
           fi
-          gh release create "$GITHUB_REF_NAME" ./*.tar.gz SHA256SUMS \
+          gh release create "$GITHUB_REF_NAME" ./tk-* SHA256SUMS \
             --verify-tag --title "$GITHUB_REF_NAME" --generate-notes "${prerelease[@]}"
