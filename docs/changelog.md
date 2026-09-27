@@ -27,3 +27,7 @@ Task `20260927-1344-scope-projects-features` completed: `scope` module (order `-
 ## 2026-09-27 14:09 [progress]
 
 Task `20260927-1409-task-commands` completed: `add`, `ls`, `show`, `edit`, `next` and `find` with human output and the JSON `data` shapes of the output contract. `add` stores `created_by` from `--by`, `TASKIST_ACTOR`, `USER` or `unknown`. The current directory is read only when a command needs directory scope, so `--help`, `--version` and commands scoped by `-p`, `TASKIST_PROJECT` or `--all-projects` work in an unreadable directory. Human output colours the status word and headings through `anstream`; stored text is printed as stored. `anstream` and `anstyle` enter the dependency set; `anyhow` leaves it, because `main` no longer has a fallible step.
+
+## 2026-09-27 15:30 [progress]
+
+Task `20260927-1530-task-command-fixes` completed: `find` folds case per character to a stable form, so texts that differ only in letter case match (word-final sigma and the capital sharp s included); `--pri` and `--limit` take values beginning with `-` and report them as bad values; invalid feature and tag names given to `ls` and `next` filters are usage errors; the colour decision follows the automatic rules of `anstream` (`NO_COLOR`, `CLICOLOR_FORCE`, `CLICOLOR`, `TERM`, `CI`) applied to the captured environment; an integration test pins age between priority and id in the `ls` and `find` order.
