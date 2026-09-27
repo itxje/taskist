@@ -48,9 +48,11 @@ Fixing find case folding, dash values, filter names, colour rules and the ls age
 
 ### Proposal
 
-- Fold case per character as the lowercase of the uppercase (`char::to_uppercase` then
-  `char::to_lowercase`), applied identically to the query and every text. It is context-free,
-  maps all three sigmas to `σ`, and matches full case folding for expansions such as `ß`.
+- Fold case without context: replace every character by the lowercase of its uppercase
+  (`char::to_uppercase` then `char::to_lowercase`) and repeat until the text no longer
+  changes, applied identically to the query and every text. This maps all three sigmas to
+  `σ` and folds expansions such as `ß` to `ss`. One pass is not enough: the capital sharp s
+  `ẞ` is its own uppercase and folds to `ß`, which folds on to `ss` in a second pass.
 - Add `allow_hyphen_values` to `--pri` and `--limit`; the value parser then rejects `-1` as an
   invalid value of the option.
 - Validate feature and tag filter names with `validate_name` before the store is opened.
@@ -71,8 +73,15 @@ Fixing find case folding, dash values, filter names, colour rules and the ls age
   (`left: [3, 1, 2]`, `right: [3, 2, 1]`) with `created_at` replaced by a constant in the
   ordering key.
 - Unit tests: `colour_follows_the_automatic_rules_of_anstream` covers every rule on hand-built
-  `Env` values; `case_folding_does_not_depend_on_the_position_in_a_word`.
+  `Env` values; `case_folding_does_not_depend_on_the_position_in_a_word` covers the sigmas and
+  the sharp s; `every_character_folds_like_its_case_variants_and_folding_is_stable` checks,
+  over every Unicode scalar value, that folding is stable and that a character folds like its
+  lowercase and its uppercase. With a single pass it fails at U+1E9E (`ss` against `ß`), and so
+  does `find_matches_the_capital_sharp_s_and_its_lowercase` (`tk find groß` finds nothing).
 - On a pseudo-terminal, `tk ls` prints escape sequences with `TERM=xterm-256color` and none
   with `TERM=dumb` or `CLICOLOR=0`.
 - `cargo fmt --all --check`, `cargo clippy --all-targets --locked` and
-  `cargo nextest run --locked --no-tests=pass`: 153 passed, 0 skipped.
+  `cargo nextest run --locked --no-tests=pass`: 155 passed, 0 skipped. `typos`,
+  `cargo shear` and `cargo deny check` report no issues.
+- `fold_case` is the only case-insensitive comparison of user text; the other one in the
+  library compares the SQLite journal mode with `wal`.

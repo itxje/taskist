@@ -927,6 +927,23 @@ fn find_folds_case_per_character_including_final_sigma() {
 }
 
 #[test]
+fn find_matches_the_capital_sharp_s_and_its_lowercase() {
+    // Calibration: the standard library pairs the capital sharp s with its lowercase.
+    assert_eq!('\u{1e9e}'.to_lowercase().to_string(), "ß");
+    let sandbox = Sandbox::new();
+    project(&sandbox, "web");
+    let capital = add(&sandbox, &["GROẞ", "-p", "web"]);
+    let small = add(&sandbox, &["straße", "-p", "web"]);
+    // Calibration: each title is found by its own spelling and by an ASCII case variant.
+    assert_eq!(find(&sandbox, &["GROẞ"]), [capital]);
+    assert_eq!(find(&sandbox, &["STRA"]), [small]);
+    assert_eq!(find(&sandbox, &["groß"]), [capital]);
+    assert_eq!(find(&sandbox, &["GROSS"]), [capital]);
+    assert_eq!(find(&sandbox, &["STRAẞE"]), [small]);
+    assert_eq!(find(&sandbox, &["strasse"]), [small]);
+}
+
+#[test]
 fn numeric_options_take_values_beginning_with_a_dash() {
     let sandbox = Sandbox::new();
     project(&sandbox, "web");
