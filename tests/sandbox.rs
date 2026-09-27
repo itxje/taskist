@@ -366,7 +366,10 @@ fn confinement_tests_hold_when_the_caller_sets_taskist_variables() {
     .args(["project", "ls"])
     .output()
     .expect("run tk");
-    assert_eq!(output.stdout, b"{\"ok\":true,\"data\":[]}\n", "{output:?}");
+    assert_eq!(
+        output.stdout, b"{\"ok\":true,\"data\":{\"projects\":[]}}\n",
+        "{output:?}"
+    );
     assert!(control.path().join("user.db").is_file());
 
     let decoy = decoy_dir();

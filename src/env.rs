@@ -80,6 +80,20 @@ impl Env {
             })?;
         Ok(data_home.join("taskist").join("taskist.db"))
     }
+
+    /// The actor stored as `created_by` and `author`, first match wins: the `--by` value,
+    /// `TASKIST_ACTOR`, `USER`, the literal `unknown`. Empty values count as unset.
+    pub fn actor(&self, by: Option<&str>) -> String {
+        by.filter(|value| !value.is_empty())
+            .map(str::to_owned)
+            .or_else(|| {
+                ["TASKIST_ACTOR", "USER"]
+                    .into_iter()
+                    .find_map(|name| self.non_empty(name))
+                    .map(|value| value.to_string_lossy().into_owned())
+            })
+            .unwrap_or_else(|| "unknown".to_owned())
+    }
 }
 
 #[cfg(test)]
@@ -161,6 +175,25 @@ mod tests {
     fn relative_home_is_not_resolvable() {
         let err = env(&[("HOME", "home")]).database_path().unwrap_err();
         assert!(matches!(err, Error::Usage(_)), "{err:?}");
+    }
+
+    #[test]
+    fn actor_prefers_the_flag_then_taskist_actor_then_user() {
+        let all = env(&[("TASKIST_ACTOR", "agent"), ("USER", "alice")]);
+        assert_eq!(all.actor(Some("cli")), "cli");
+        assert_eq!(all.actor(None), "agent");
+        assert_eq!(env(&[("USER", "alice")]).actor(None), "alice");
+        assert_eq!(env(&[]).actor(None), "unknown");
+    }
+
+    #[test]
+    fn empty_actor_values_count_as_unset() {
+        let env = env(&[("TASKIST_ACTOR", ""), ("USER", "alice")]);
+        assert_eq!(env.actor(Some("")), "alice");
+        assert_eq!(
+            super::Env::new([], PathBuf::from("/"), false).actor(Some("")),
+            "unknown"
+        );
     }
 
     #[test]
