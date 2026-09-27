@@ -10,7 +10,7 @@ use serde::{Serialize, Serializer};
 
 use crate::env::Env;
 use crate::error::Error;
-use crate::model::Project;
+use crate::model::{Project, validate_name};
 use crate::store::Tx;
 
 /// Where the resolved project came from.
@@ -108,6 +108,7 @@ const fn none() -> Scope {
 }
 
 fn named(tx: &Tx<'_>, name: &str, source: Source) -> Result<Scope, Error> {
+    validate_name("project name", name)?;
     let project = tx
         .project_by_name(name)?
         .ok_or_else(|| Error::NotFound(format!("no project named {name:?}")))?;

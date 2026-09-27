@@ -1,4 +1,4 @@
-# 20260927-1620-status-transitions Add the status transition and note commands
+# 20260927-1620-status-transitions Add the status transition and note commands and validate lookup names
 
 - **status**: completed
 - **priority**: P1
@@ -24,10 +24,14 @@ Acceptance:
 - `note` appends a note of kind `note`, moves `updated_at`, and exits 3 for an unknown id.
 - The JSON `data` is `{tasks: [{task, changed}]}` in argument order for transitions and
   `{task}` for `note`, with exactly those keys.
+- An invalid project name (for example `BAD_NAME`) in `-p` of `ls`, `next`, `find`,
+  `feature ls`, `feature mv`, `add` and `edit`, in `TASKIST_PROJECT`, and in
+  `project show|edit|archive|rm`, and an invalid feature name as `feature mv <old>`, exits 2
+  with `usage`; a valid unknown name exits 3 with `not_found`.
 
 ## ActiveForm
 
-Adding the status transition and note commands
+Adding the status transition and note commands and validating lookup names
 
 ## Dependencies
 
@@ -47,6 +51,12 @@ Adding the status transition and note commands
 - The `ls` layout fixture seeds its blocked, doing and done tasks through the library, since no
   command changed a status before.
 
+- Names given to look something up were not validated: `scope::named` (the `-p` flag and
+  `TASKIST_PROJECT`) and `command::project_named` (`project show|edit|archive|rm`, `edit -p`)
+  looked the name up directly, and `feature mv` validated only `<new>`, so an invalid name
+  was reported as `not_found` instead of `usage`. Every other `project_by_name` and
+  `feature_by_name` caller already receives a validated or stored name.
+
 ### Proposal
 
 - The status commands are one flattened `StatusCommand` enum, dispatched by its own function,
@@ -65,6 +75,10 @@ Adding the status transition and note commands
   `noted #<id> in <location>: <title>` for `note`.
 - The `ls` layout fixture seeds its statuses and reasons through `tk start`, `tk block`,
   `tk note` and `tk done`.
+- Validate the name with `validate_name` in the two project lookups, `scope::named` and
+  `command::project_named`, before the query, and validate `<old>` of `feature mv` next to
+  `<new>`. Every command that looks up a project by name goes through one of the two, so a
+  new command gets the rule without its own check.
 
 ### Results
 
@@ -84,4 +98,10 @@ Adding the status transition and note commands
 - The `ls` layout fixture now reaches its statuses and reasons through `tk start`, `tk block`,
   `tk note` and `tk done`; its expected output is unchanged.
 - `cargo fmt --all --check`, `cargo clippy --all-targets --locked` and
-  `cargo nextest run --locked --no-tests=pass`: 171 passed, 0 skipped.
+  `cargo nextest run --locked --no-tests=pass`: 175 passed, 0 skipped, after the name
+  validation below.
+- Name validation, failing first: in `tests/names.rs` the three tests with an invalid name
+  failed before the change with exit 3 where 2 was expected (`left: Some(3)`,
+  `right: Some(2)`); the calibration test, which runs every command line with the known name
+  `web`, passed. After the change all four pass. Each case also checks that a valid unknown
+  name stays `not_found` and that the refused commands left the task unchanged.

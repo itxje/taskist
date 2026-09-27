@@ -64,6 +64,7 @@ pub fn list(env: &Env, request: Request<'_>) -> Result<FeatureList, Error> {
 /// `tk feature mv`: renames `old` to `new`, or, when `new` exists, moves every task of
 /// `old` to it and deletes `old`.
 pub fn rename(env: &Env, old: &str, new: &str, request: Request<'_>) -> Result<FeatureMove, Error> {
+    validate_name("feature name", old)?;
     validate_name("feature name", new)?;
     open_store(env)?.write(|tx| {
         let project = scope::resolve(tx, env, request)?.require()?;
