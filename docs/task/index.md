@@ -34,3 +34,13 @@ Each task is a single line linking to its detail file. All detailed information 
 ## Tasks
 
 - [-] [**20260927-1154-taskist-mvp Design and build the taskist CLI MVP**](20260927-1154-taskist-mvp.md) `P1`
+- [x] [**20260927-1230-repository-foundation Add repository foundation and the tk entry point**](20260927-1230-repository-foundation.md) `P1`
+- [x] [**20260927-1300-sqlite-store Add the SQLite store and the domain model**](20260927-1300-sqlite-store.md) `P1`
+- [x] [**20260927-1344-scope-projects-features Add scope resolution and the project and feature commands**](20260927-1344-scope-projects-features.md) `P1`
+- [x] [**20260927-1409-task-commands Add the task create, list, show, edit, next and find commands**](20260927-1409-task-commands.md) `P1`
+- [x] [**20260927-1530-task-command-fixes Fix find case folding, dash values, filter names, colour rules and the ls age order**](20260927-1530-task-command-fixes.md) `P1`
+- [x] [**20260927-1620-status-transitions Add the status transition and note commands and validate lookup names**](20260927-1620-status-transitions.md) `P1`
+- [x] [**20260927-1700-brief-export-import Add brief, export and import**](20260927-1700-brief-export-import.md) `P1`
+- [x] [**20260927-1800-exchange-fixes Fix the brief reason layout, import error line numbers and import scope resolution**](20260927-1800-exchange-fixes.md) `P1`
+- [x] [**20260927-1900-guide-docs-coverage Add the guide, completions, documentation, concurrency test and coverage**](20260927-1900-guide-docs-coverage.md) `P1`
+- [x] [**20260927-2000-empty-values-coverage-map Document which empty environment values count as unset and name the coverage measurement in the acceptance map**](20260927-2000-empty-values-coverage-map.md) `P1`

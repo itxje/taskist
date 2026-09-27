@@ -1,0 +1,71 @@
+[package]
+name = "taskist"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+description = "Track unfinished and follow-up work across many projects from one terminal command"
+license = "MIT"
+readme = "README.md"
+keywords = ["cli", "tasks", "todo", "sqlite"]
+categories = ["command-line-utilities"]
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "tk"
+path = "src/main.rs"
+
+[dependencies]
+anstream = "1.0.0"
+anstyle = "1.0.14"
+clap = { version = "4.6.7", features = ["derive", "env"] }
+clap_complete_command = "0.6.1"
+# JUSTIFICATION: C dependency, the SQLite amalgamation built and linked statically; see docs/decisions/2026-09-27-bundled-sqlite.md
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.21"
+
+[dev-dependencies]
+assert_cmd = "2.2.2"
+predicates = "3.1.4"
+tempfile = "3.27.0"
+
+[lints.rust]
+warnings = { level = "deny", priority = -2 }
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+unreachable_pub = "warn"
+elided_lifetimes_in_paths = "warn"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+cargo_common_metadata = "allow"
+multiple_crate_versions = "allow"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+debug = "line-tables-only"
+
+[profile.dist]
+inherits = "release"
+opt-level = "z"
+strip = "symbols"
+panic = "abort"
+debug = false

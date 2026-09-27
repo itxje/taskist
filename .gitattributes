@@ -1,0 +1,3 @@
+* text=auto eol=lf
+*.db binary
+Cargo.lock linguist-generated=true
