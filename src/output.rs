@@ -197,7 +197,8 @@ fn project_line(project: &ProjectView) -> String {
     format!("{}  ({} open){archived}\n", project.name, project.open)
 }
 
-/// `#id  Pn  status   title`, without indentation or line end.
+/// The task id, the priority `P0`..`P3`, the padded status and the title, without
+/// indentation or line end.
 fn task_line(task: &TaskView, paint: Paint) -> String {
     format!(
         "#{}  P{}  {}  {}",
