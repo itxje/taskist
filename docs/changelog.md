@@ -11,3 +11,7 @@ Plan `20260927-1154-taskist-mvp`: switched implementation language from Go to Ru
 ## 2026-09-27 12:10 [decision]
 
 Plan `20260927-1154-taskist-mvp` approved: binary `tk`, five-status set, explicit project creation.
+
+## 2026-09-27 12:30 [progress]
+
+Task `20260927-1230-repository-foundation` completed: single `taskist` package with the `tk` binary, toolchain, lint, deny, fmt, clippy and nextest configuration, repository hygiene files and the bundled-SQLite decision record; `error`, `env`, `output` and `cli` modules behind a thin `main`; a shared integration-test helper that runs commands in an empty environment inside a temporary directory. Dependencies enter `Cargo.toml` with the change that first uses them: `rusqlite` with the SQLite store, `anstream` and `anstyle` with colour output, `clap_complete_command` with shell completions. The check that `tk` itself runs confined by the test helper follows with the SQLite store, when a command first opens the database.
