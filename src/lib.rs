@@ -17,7 +17,7 @@ use std::ffi::{OsStr, OsString};
 use clap::Parser;
 use clap::error::ErrorKind;
 
-use crate::cli::{Cli, Command, FeatureCommand, ProjectCommand, StatusCommand};
+use crate::cli::{Cli, Command, ExchangeCommand, FeatureCommand, ProjectCommand, StatusCommand};
 use crate::command::project::ProjectEdit;
 use crate::command::task::{ListFilter, NewTaskInput, TaskEdit};
 use crate::env::Env;
@@ -137,6 +137,7 @@ fn run_command(format: Format, env: &Env, by: Option<&str>, command: Command) ->
             task::find(env, scope.request(), &query, all),
             |list| output::task_list_text(list, paint),
         ),
+        Command::Exchange(command) => run_exchange(format, env, by, command),
         Command::Project { command } => run_project(format, env, command),
         Command::Feature { command } => run_feature(format, env, command),
     }
@@ -196,6 +197,30 @@ fn transition(
         command::transition::transition(env, action, ids, note, by),
         output::transition_text,
     )
+}
+
+fn run_exchange(format: Format, env: &Env, by: Option<&str>, command: ExchangeCommand) -> u8 {
+    use command::exchange;
+    match command {
+        ExchangeCommand::Brief { scope } => output::emit(
+            format,
+            exchange::brief(env, scope.request()),
+            output::brief_text,
+        ),
+        ExchangeCommand::Export {
+            format: document,
+            project,
+        } => output::emit(
+            format,
+            exchange::export(env, document, project.as_deref()),
+            output::export_text,
+        ),
+        ExchangeCommand::Import { file, scope } => output::emit(
+            format,
+            exchange::import(env, &file, scope.request(), by),
+            output::import_text,
+        ),
+    }
 }
 
 fn run_project(format: Format, env: &Env, command: ProjectCommand) -> u8 {

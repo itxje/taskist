@@ -7,6 +7,7 @@ use std::io::Write;
 use anstyle::{AnsiColor, Style};
 use serde::Serialize;
 
+use crate::command::exchange::{Brief, Export, Imported};
 use crate::command::feature::{FeatureList, FeatureMove};
 use crate::command::project::{
     ProjectArchive, ProjectData, ProjectList, ProjectRemoval, ProjectShow,
@@ -256,6 +257,29 @@ pub fn task_list_text(list: &TaskList, paint: Paint) -> String {
         }
     }
     text
+}
+
+/// The human form of `tk brief`: the digest itself.
+pub fn brief_text(brief: &Brief) -> String {
+    brief.text.clone()
+}
+
+/// The human form of `tk export`: the document itself.
+pub fn export_text(export: &Export) -> String {
+    export.text().to_owned()
+}
+
+/// The human form of `tk import`: the number of created tasks and their ids.
+pub fn import_text(imported: &Imported) -> String {
+    let count = plural(
+        i64::try_from(imported.ids.len()).unwrap_or(i64::MAX),
+        "task",
+    );
+    if imported.ids.is_empty() {
+        return format!("imported {count}\n");
+    }
+    let ids: Vec<String> = imported.ids.iter().map(|id| format!("#{id}")).collect();
+    format!("imported {count}: {}\n", ids.join(", "))
 }
 
 /// The human form of `tk show`: a heading, one `name: value` line per field, the body

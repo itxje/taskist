@@ -1,6 +1,7 @@
 //! Command implementations: each opens the store, runs one transaction and returns data
 //! for the output module.
 
+pub mod exchange;
 pub mod feature;
 pub mod project;
 pub mod task;

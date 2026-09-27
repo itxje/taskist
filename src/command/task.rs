@@ -140,7 +140,7 @@ fn body_text(body: Option<&str>) -> Result<Option<String>, Error> {
     }
 }
 
-fn task_view(task: Task, project: &str, feature: Option<String>) -> TaskView {
+pub(super) fn task_view(task: Task, project: &str, feature: Option<String>) -> TaskView {
     TaskView {
         id: task.id,
         project: project.to_owned(),
@@ -157,7 +157,7 @@ fn task_view(task: Task, project: &str, feature: Option<String>) -> TaskView {
     }
 }
 
-fn missing_feature(task: &Task, feature: i64) -> Error {
+pub(super) fn missing_feature(task: &Task, feature: i64) -> Error {
     Error::Internal(format!(
         "task {} refers to the missing feature {feature}",
         task.id
@@ -227,45 +227,84 @@ pub fn add(
     let target = scope::target(env, request)?;
     open_store(env)?.write(|tx| {
         let project = scope::resolve(tx, env, &target)?.require()?;
-        refuse_archived(&project)?;
-        let feature_id = input
-            .feature
-            .map(|name| feature_id(tx, project.id, name))
-            .transpose()?;
-        let created = tx.insert_task(&NewTask {
-            project_id: project.id,
-            feature_id,
-            title: &title,
-            body: &body,
-            priority,
-            created_by: &actor,
-        })?;
-        for tag in input.tags {
-            tx.add_tag(created.id, tag)?;
-        }
+        let id = create(
+            tx,
+            &project,
+            &Creation {
+                title: &title,
+                feature: input.feature,
+                priority,
+                tags: input.tags,
+                body: &body,
+                actor: &actor,
+            },
+        )?;
         Ok(TaskData {
-            task: view(tx, task_by_id(tx, created.id)?)?,
+            task: view(tx, task_by_id(tx, id)?)?,
         })
     })
+}
+
+/// The validated values of a new task.
+pub(super) struct Creation<'a> {
+    /// Normalized title.
+    pub title: &'a str,
+    /// Valid feature name, created when missing.
+    pub feature: Option<&'a str>,
+    /// Valid priority.
+    pub priority: u8,
+    /// Valid tags.
+    pub tags: &'a [String],
+    /// Body text.
+    pub body: &'a str,
+    /// The resolved actor.
+    pub actor: &'a str,
+}
+
+/// Creates a `todo` task in a project that is not archived and returns its id; the
+/// feature is created on first use.
+pub(super) fn create(tx: &Tx<'_>, project: &Project, new: &Creation<'_>) -> Result<i64, Error> {
+    refuse_archived(project)?;
+    let feature_id = new
+        .feature
+        .map(|name| feature_id(tx, project.id, name))
+        .transpose()?;
+    let created = tx.insert_task(&NewTask {
+        project_id: project.id,
+        feature_id,
+        title: new.title,
+        body: new.body,
+        priority: new.priority,
+        created_by: new.actor,
+    })?;
+    for tag in new.tags {
+        tx.add_tag(created.id, tag)?;
+    }
+    Ok(created.id)
 }
 
 /// `tk show`: a task with its notes, oldest first.
 pub fn show(env: &Env, id: i64) -> Result<TaskShow, Error> {
     open_store(env)?.read(|tx| {
         let task = view(tx, task_by_id(tx, id)?)?;
-        let notes = tx
-            .notes(id)?
-            .into_iter()
-            .map(|note| NoteView {
-                id: note.id,
-                kind: note.kind,
-                text: note.text,
-                author: note.author,
-                created_at: note.created_at,
-            })
-            .collect();
+        let notes = note_views(tx, id)?;
         Ok(TaskShow { task, notes })
     })
+}
+
+/// The notes of a task as the output shows them, oldest first.
+pub(super) fn note_views(tx: &Tx<'_>, task_id: i64) -> Result<Vec<NoteView>, Error> {
+    Ok(tx
+        .notes(task_id)?
+        .into_iter()
+        .map(|note| NoteView {
+            id: note.id,
+            kind: note.kind,
+            text: note.text,
+            author: note.author,
+            created_at: note.created_at,
+        })
+        .collect())
 }
 
 /// One tag change of `edit`: whether it adds, and the tag.

@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::model::Status;
 use crate::scope::Request;
@@ -156,6 +156,9 @@ pub enum Command {
         #[arg(long)]
         all: bool,
     },
+    /// The digest, export and import commands.
+    #[command(flatten)]
+    Exchange(ExchangeCommand),
     /// Manage projects.
     Project {
         /// The project command to run.
@@ -168,6 +171,49 @@ pub enum Command {
         #[command(subcommand)]
         command: FeatureCommand,
     },
+}
+
+/// The commands that summarize, export or import tasks.
+#[derive(Debug, Subcommand)]
+pub enum ExchangeCommand {
+    /// Print a markdown digest of the open tasks, grouped by feature, blocked ones flagged.
+    Brief {
+        /// Scope options.
+        #[command(flatten)]
+        scope: ListScope,
+    },
+    /// Print every project, feature, task, tag and note, closed tasks included.
+    Export {
+        /// The document format.
+        #[arg(long, value_enum, default_value_t = ExportFormat::Json)]
+        format: ExportFormat,
+        /// Only this project [default: every project, archived ones included].
+        #[arg(
+            short = 'p',
+            long = "project",
+            value_name = "NAME",
+            allow_hyphen_values = true
+        )]
+        project: Option<String>,
+    },
+    /// Create tasks from JSON lines, all or none.
+    Import {
+        /// A file with one JSON object per line, or '-' for stdin.
+        #[arg(value_name = "FILE")]
+        file: PathBuf,
+        /// Scope options, for lines without a project.
+        #[command(flatten)]
+        scope: ProjectScope,
+    },
+}
+
+/// The formats of `tk export`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ExportFormat {
+    /// One JSON document.
+    Json,
+    /// Markdown headings and checkbox lists.
+    Md,
 }
 
 /// The commands that change the status of tasks or append a note.

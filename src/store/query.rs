@@ -159,6 +159,13 @@ fn expect_one(changed: usize, what: &str, id: i64) -> Result<(), Error> {
 }
 
 impl Tx<'_> {
+    /// The current time, in the format of every stored timestamp.
+    pub fn now(&self) -> Result<String, Error> {
+        Ok(self
+            .tx
+            .query_row(concat!("SELECT ", now!()), [], |row| row.get(0))?)
+    }
+
     /// Creates a project.
     pub fn insert_project(
         &self,
