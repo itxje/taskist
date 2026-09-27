@@ -267,10 +267,30 @@ fn export_project(tx: &Tx<'_>, project: Project) -> Result<ExportProject, Error>
     })
 }
 
-/// Indents every line of `text` after the first by `indent`, so multi-line text stays
-/// inside its list item.
+/// Characters that end a line of stored text: the same set the model uses to keep titles
+/// single-line (`LINE_TERMINATORS` in `model`). A carriage return followed by a line feed
+/// is one break.
+const LINE_TERMINATORS: [char; 7] = [
+    '\n', '\u{0B}', '\u{0C}', '\r', '\u{85}', '\u{2028}', '\u{2029}',
+];
+
+/// Breaks `text` at every line terminator into line feeds and indents every line after the
+/// first by `indent`, so multi-line text stays inside its list item.
 fn continued(text: &str, indent: &str) -> String {
-    text.replace('\n', &format!("\n{indent}"))
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if LINE_TERMINATORS.contains(&c) {
+            if c == '\r' {
+                chars.next_if_eq(&'\n');
+            }
+            out.push('\n');
+            out.push_str(indent);
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// The markdown form of an export: a `## name` section per project with its fields, a
@@ -593,5 +613,9 @@ mod tests {
     fn continuation_lines_are_indented() {
         assert_eq!(continued("one", "  "), "one");
         assert_eq!(continued("one\ntwo", "  "), "one\n  two");
+        assert_eq!(continued("a\r\nb\rc\n\rd", "  "), "a\n  b\n  c\n  \n  d");
+        for terminator in ['\u{0B}', '\u{0C}', '\u{85}', '\u{2028}', '\u{2029}'] {
+            assert_eq!(continued(&format!("a{terminator}b"), "  "), "a\n  b");
+        }
     }
 }

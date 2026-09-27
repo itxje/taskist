@@ -43,10 +43,22 @@ Fixing the brief reason layout, import error line numbers and import scope resol
 - `import` resolved the scope only for the first line without a `project`, so an unknown
   project named by `-p` or `TASKIST_PROJECT` went unnoticed when every line named its own;
   every other command refuses it with `not_found`.
+- `continued`, which keeps multi-line stored text inside its list item in the brief and in
+  the md export (project description, task body, note text), broke only at line feeds. A
+  bare carriage return is a line ending for a `CommonMark` reader, so a reason
+  `first\r# api (9 open)` or a body `x\r### forged` still formed a top-level heading.
 
 ### Proposal
 
 - Render the reason through `continued(reason, "  ")`, the helper the md export uses.
+- Make `continued` break at every line terminator of the set the model uses to keep titles
+  single-line (LF, VT, FF, CR, NEL, U+2028, U+2029, with CRLF as one break), writing each
+  break as a line feed followed by the indent. The model keeps its set private, so the same
+  set is defined next to `continued` with a comment naming the model's.
+- Stored text also reaches human (non-markdown) output: the `ls` reason
+  (`src/output.rs` around line 254), the `show` body and note text (around lines 311 and
+  325) and the `project show` description (around line 411). These are plain text, not
+  markdown, and are left as they are.
 - Map a parse error to `column N: <message>`: the message with the parser's exact
   ` at line L column C` suffix removed, so the only line number is the file's.
 - Keep the order of the import: read the file, parse and validate every line, and only then
@@ -73,9 +85,14 @@ Fixing the brief reason layout, import error line numbers and import scope resol
     named project and had created the database file.
   - `a_malformed_import_is_a_usage_error_on_a_database_that_cannot_be_opened`: on a database
     with `user_version` 99 the import reported `unsupported_schema` (exit 1), not `usage`.
+  - `a_blocked_reason_breaks_at_every_line_terminator_inside_its_item`: the line-feed
+    control passed; with CRLF the reason kept its carriage returns, and with a bare CR its
+    lines formed top-level blocks.
+  - `export_md_keeps_stored_text_inside_its_item_at_every_line_terminator`: the line-feed
+    control passed; with CRLF the description continuation was not a plain indented line.
 - After the fix these pass together with the unit test
   `parse_errors_carry_a_column_and_no_line` and the unchanged
   `import_without_a_resolved_project_names_the_flag`.
 - `cargo fmt --all --check`, `cargo clippy --all-targets --locked` and
-  `cargo nextest run --locked --no-tests=pass` pass; nextest reported 201 passed, 0 skipped.
+  `cargo nextest run --locked --no-tests=pass` pass; nextest reported 203 passed, 0 skipped.
 - `typos`, `cargo shear` and `cargo deny check` pass.

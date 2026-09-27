@@ -146,6 +146,73 @@ Blocked:
     assert_eq!(data["text"], expected, "{data}");
 }
 
+/// Every line break a reader may honour: line feed first as the control, then CRLF, and
+/// the single terminators the model keeps out of titles.
+const BREAKS: [&str; 8] = [
+    "\n", "\r\n", "\r", "\u{0B}", "\u{0C}", "\u{85}", "\u{2028}", "\u{2029}",
+];
+
+/// The lines of `text`, split at every line break in [`BREAKS`], which is stricter than a
+/// `CommonMark` reader (0.31, section 2.1) that breaks at LF, CR and CRLF only.
+fn markdown_lines(text: &str) -> Vec<&str> {
+    text.split("\r\n")
+        .flat_map(|part| {
+            part.split([
+                '\n', '\r', '\u{0B}', '\u{0C}', '\u{85}', '\u{2028}', '\u{2029}',
+            ])
+        })
+        .collect()
+}
+
+/// Top-level headings and list items: lines at column 0 that open one.
+fn top_level_blocks(text: &str) -> Vec<&str> {
+    markdown_lines(text)
+        .into_iter()
+        .filter(|line| line.starts_with('#') || line.starts_with("- "))
+        .collect()
+}
+
+#[test]
+fn a_blocked_reason_breaks_at_every_line_terminator_inside_its_item() {
+    let expected = "\
+# web (1 open)
+
+## (no feature)
+- #1 P2 blocked Paginate /orders
+
+Blocked:
+- #1 Paginate /orders: first
+  # api (9 open)
+  - #1 forged
+";
+    assert_eq!(
+        top_level_blocks(expected),
+        [
+            "# web (1 open)",
+            "## (no feature)",
+            "- #1 P2 blocked Paginate /orders",
+            "- #1 Paginate /orders: first",
+        ]
+    );
+    for line_break in BREAKS {
+        let sandbox = Sandbox::new();
+        project(&sandbox, &["web"]);
+        add(&sandbox, &["Paginate /orders", "-p", "web"]);
+        let reason = ["first", "# api (9 open)", "- #1 forged"].join(line_break);
+        sandbox.ok(&["block", "1", &reason]);
+        let text = stdout(
+            &sandbox
+                .tk()
+                .args(["brief", "-p", "web"])
+                .output()
+                .expect("run tk"),
+        );
+        assert_eq!(text, expected, "{line_break:?}");
+        let data = ok_data(&json_run(&sandbox, &["brief", "-p", "web"]));
+        assert_eq!(data["text"], expected, "{line_break:?}");
+    }
+}
+
 #[test]
 fn brief_covers_every_project_without_scope_and_with_all_projects() {
     let sandbox = Sandbox::new();
@@ -459,6 +526,44 @@ fn export_md_lists_every_task_under_its_project_and_feature() {
         "second line",
     ] {
         position(title);
+    }
+}
+
+#[test]
+fn export_md_keeps_stored_text_inside_its_item_at_every_line_terminator() {
+    for line_break in BREAKS {
+        let sandbox = Sandbox::new();
+        let desc = ["about", "# forged project"].join(line_break);
+        project(&sandbox, &["web", "--desc", &desc]);
+        let body = ["x", "### forged feature"].join(line_break);
+        let id = add(
+            &sandbox,
+            &["Paginate /orders", "-p", "web", "--body", &body],
+        );
+        let note = ["y", "- forged item", "## forged section"].join(line_break);
+        sandbox.ok(&["note", &id, &note]);
+        let text = stdout(
+            &sandbox
+                .tk()
+                .args(["export", "--format", "md"])
+                .output()
+                .expect("run tk"),
+        );
+        let forged: Vec<&str> = top_level_blocks(&text)
+            .into_iter()
+            .filter(|line| line.contains("forged"))
+            .collect();
+        assert!(forged.is_empty(), "{line_break:?}: {forged:?} in {text:?}");
+        for continuation in [
+            "\n- description: about\n  # forged project\n",
+            "  - body: x\n    ### forged feature\n",
+            ": y\n    - forged item\n    ## forged section\n",
+        ] {
+            assert!(
+                text.contains(continuation),
+                "{line_break:?}: {continuation:?} missing from {text:?}"
+            );
+        }
     }
 }
 
