@@ -906,3 +906,118 @@ fn escape_sequences_in_stored_text_are_printed_as_stored() {
     assert!(!has_escape(&output.stdout));
     assert_eq!(ok_data(&output)["task"]["title"], title);
 }
+
+// ---------------------------------------------------------------- review follow-ups
+
+#[test]
+fn find_folds_case_per_character_including_final_sigma() {
+    let sandbox = Sandbox::new();
+    project(&sandbox, "web");
+    let road = add(&sandbox, &["ΟΔΟΣ", "-p", "web"]);
+    let ascii = add(&sandbox, &["Refresh the Token", "-p", "web"]);
+    // Calibration: a Greek letter without a context-dependent lowercase matches both ways.
+    assert_eq!(find(&sandbox, &["Δ"]), [road]);
+    assert_eq!(find(&sandbox, &["δ"]), [road]);
+    // The word-final capital sigma matches both lowercase sigmas and itself.
+    for query in ["Σ", "σ", "ς", "οδος", "ΟΔΟΣ", "οδοσ"] {
+        assert_eq!(find(&sandbox, &[query]), [road], "{query}");
+    }
+    assert_eq!(find(&sandbox, &["tHE tOKEN"]), [ascii]);
+    assert_eq!(find(&sandbox, &["REFRESH"]), [ascii]);
+}
+
+#[test]
+fn numeric_options_take_values_beginning_with_a_dash() {
+    let sandbox = Sandbox::new();
+    project(&sandbox, "web");
+    let id = add(&sandbox, &["task", "-p", "web"]);
+    let id = id.to_string();
+    for (args, option) in [
+        (vec!["edit", &id, "--pri", "-1"], "--pri"),
+        (vec!["add", "x", "-p", "web", "--pri", "-1"], "--pri"),
+        (vec!["ls", "-p", "web", "--limit", "-1"], "--limit"),
+    ] {
+        let message = err_message(&json_run(&sandbox, &args), 2, "usage");
+        assert!(message.contains("'-1'"), "{args:?}: {message}");
+        assert!(message.contains(option), "{args:?}: {message}");
+        assert!(
+            !message.contains("unexpected argument"),
+            "{args:?}: {message}"
+        );
+    }
+    // The task is unchanged and no task was added.
+    assert_eq!(show(&sandbox, id.parse().expect("id"))["priority"], 2);
+    assert_eq!(ids(&sandbox.ok(&["ls", "-p", "web"])["tasks"]).len(), 1);
+}
+
+#[test]
+fn invalid_feature_and_tag_filters_are_usage_errors() {
+    let sandbox = Sandbox::new();
+    project(&sandbox, "web");
+    add(&sandbox, &["task", "-p", "web", "-f", "auth", "--tag", "x"]);
+    // Calibration: valid but unknown names are accepted as filters.
+    assert!(ids(&sandbox.ok(&["ls", "-p", "web", "--tag", "nope"])["tasks"]).is_empty());
+    err_message(
+        &json_run(&sandbox, &["ls", "-p", "web", "-f", "nope"]),
+        3,
+        "not_found",
+    );
+    for args in [
+        &["ls", "-p", "web", "--tag", "BAD_TAG"][..],
+        &["ls", "--tag", "BAD_TAG"],
+        &["ls", "-p", "web", "-f", "BAD_NAME"],
+        &["ls", "-f", "-x"],
+        &["next", "-p", "web", "-f", "BAD_NAME"],
+        &["next", "-f", "Bad"],
+    ] {
+        err_message(&json_run(&sandbox, args), 2, "usage");
+    }
+}
+
+#[test]
+fn ls_and_find_order_by_age_between_priority_and_id() {
+    let sandbox = Sandbox::new();
+    project(&sandbox, "web");
+    let first = add(&sandbox, &["match first", "-p", "web"]);
+    let second = add(&sandbox, &["match second", "-p", "web"]);
+    let urgent = add(&sandbox, &["match urgent", "-p", "web", "--pri", "1"]);
+    // The lower id is the younger task.
+    for (id, at) in [
+        (first, "2026-06-01T00:00:00.000Z"),
+        (second, "2026-01-01T00:00:00.000Z"),
+        (urgent, "2026-12-01T00:00:00.000Z"),
+    ] {
+        sandbox.sql(
+            "UPDATE task SET created_at = ?2 WHERE id = ?1",
+            rusqlite::params![id, at],
+        );
+    }
+    // Calibration: the ages were set, so age and id order disagree.
+    assert_eq!(
+        show(&sandbox, second)["created_at"],
+        "2026-01-01T00:00:00.000Z"
+    );
+    assert!(first < second);
+
+    assert_eq!(
+        ids(&sandbox.ok(&["ls", "-p", "web"])["tasks"]),
+        [urgent, second, first]
+    );
+    assert_eq!(
+        find(&sandbox, &["match", "-p", "web"]),
+        [urgent, second, first]
+    );
+    // Then id: equal priority and age.
+    sandbox.sql(
+        "UPDATE task SET created_at = ?1 WHERE id IN (?2, ?3)",
+        rusqlite::params!["2026-01-01T00:00:00.000Z", first, second],
+    );
+    assert_eq!(
+        ids(&sandbox.ok(&["ls", "-p", "web"])["tasks"]),
+        [urgent, first, second]
+    );
+    assert_eq!(
+        find(&sandbox, &["match", "-p", "web"]),
+        [urgent, first, second]
+    );
+}

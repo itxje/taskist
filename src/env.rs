@@ -84,14 +84,25 @@ impl Env {
         self.stdout_is_terminal
     }
 
-    /// Whether human output is coloured: never when `NO_COLOR` is set, always when
-    /// `CLICOLOR_FORCE` is set, otherwise when stdout is a terminal. Empty values count
-    /// as unset.
+    /// Whether human output is coloured, by the automatic rules of `anstream`, applied to
+    /// the captured variables instead of the process environment. Never when `NO_COLOR` is
+    /// set; otherwise always when `CLICOLOR_FORCE` is set; otherwise never when `CLICOLOR`
+    /// is `0`; otherwise only when stdout is a terminal and either `TERM` is set to
+    /// anything but `dumb`, `CLICOLOR` is set, or `CI` is set. Empty `NO_COLOR` and
+    /// `CLICOLOR_FORCE` values count as unset.
     pub fn colour(&self) -> bool {
+        let clicolor = self.var("CLICOLOR").map(|value| value != "0");
         if self.non_empty("NO_COLOR").is_some() {
-            return false;
+            false
+        } else if self.non_empty("CLICOLOR_FORCE").is_some() {
+            true
+        } else if clicolor == Some(false) {
+            false
+        } else {
+            let term_supports_colour = self.var("TERM").is_some_and(|term| term != "dumb");
+            self.stdout_is_terminal
+                && (term_supports_colour || clicolor == Some(true) || self.var("CI").is_some())
         }
-        self.non_empty("CLICOLOR_FORCE").is_some() || self.stdout_is_terminal
     }
 
     /// The value of a variable, if set to a non-empty value.
@@ -196,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn colour_follows_no_color_then_clicolor_force_then_the_terminal() {
+    fn colour_follows_the_automatic_rules_of_anstream() {
         let with = |vars: &[(&str, &str)], terminal: bool| {
             Env::new(
                 vars.iter()
@@ -206,12 +217,29 @@ mod tests {
             )
             .colour()
         };
-        assert!(!with(&[], false));
-        assert!(with(&[], true));
+        let term = ("TERM", "xterm-256color");
+        // Calibration: a colour terminal is coloured and a pipe is not.
+        assert!(with(&[term], true));
+        assert!(!with(&[term], false));
+        // The terminal must declare colour support through TERM, CLICOLOR or CI.
+        assert!(!with(&[], true));
+        assert!(!with(&[("TERM", "dumb")], true));
+        assert!(with(&[("TERM", "")], true));
+        assert!(with(&[("CLICOLOR", "1")], true));
+        assert!(with(&[("TERM", "dumb"), ("CLICOLOR", "1")], true));
+        assert!(with(&[("CI", "")], true));
+        assert!(!with(&[("CLICOLOR", "1")], false));
+        // CLICOLOR=0 and NO_COLOR turn colour off on a terminal.
+        assert!(!with(&[term, ("CLICOLOR", "0")], true));
+        assert!(!with(&[term, ("NO_COLOR", "1")], true));
+        assert!(with(&[term, ("NO_COLOR", "")], true));
+        // CLICOLOR_FORCE colours a pipe and a dumb terminal, unless NO_COLOR is set.
         assert!(with(&[("CLICOLOR_FORCE", "1")], false));
+        assert!(with(&[("CLICOLOR_FORCE", "1"), ("CLICOLOR", "0")], false));
+        assert!(with(&[("CLICOLOR_FORCE", "1"), ("TERM", "dumb")], true));
         assert!(!with(&[("CLICOLOR_FORCE", "")], false));
-        assert!(!with(&[("NO_COLOR", "1")], true));
         assert!(!with(&[("NO_COLOR", "1"), ("CLICOLOR_FORCE", "1")], true));
+        assert!(!with(&[("NO_COLOR", "1"), ("CLICOLOR_FORCE", "1")], false));
         assert!(with(&[("NO_COLOR", ""), ("CLICOLOR_FORCE", "1")], false));
     }
 

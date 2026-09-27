@@ -453,8 +453,9 @@ pub fn emit_failure(format: Format, error: &Error) -> u8 {
 }
 
 /// Writes to stdout through `anstream`, which passes the text through as it is: the
-/// styles in it are those [`Paint`] added when colour is enabled, and escape sequences in
-/// stored text are printed as stored.
+/// styles in it are those [`Paint`] added when [`Env::colour`](crate::env::Env::colour),
+/// which applies the automatic rules of `anstream` to the captured environment, enables
+/// colour, and escape sequences in stored text are printed as stored.
 fn write_stdout(text: &str) -> Result<(), Error> {
     write_all(
         anstream::AutoStream::new(std::io::stdout().lock(), anstream::ColorChoice::Always),
