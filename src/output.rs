@@ -1,13 +1,18 @@
 //! Rendering of results and errors, and the only place that writes to stdout or stderr.
 
 use std::ffi::OsStr;
+use std::fmt::Write as _;
 use std::io::Write;
 
 use serde::Serialize;
 
+use crate::command::feature::{FeatureList, FeatureMove};
+use crate::command::project::{
+    ProjectArchive, ProjectData, ProjectList, ProjectRemoval, ProjectShow,
+};
+use crate::command::{FeatureView, ProjectView, TaskList, TaskView};
 use crate::env::Env;
 use crate::error::Error;
-use crate::model::Project;
 
 /// How results and errors are written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,20 +112,178 @@ pub fn emit_success<T: Serialize>(format: Format, data: &T, human: &str) -> u8 {
     }
 }
 
-/// The human form of a project list: one name per line, or `no projects`.
-pub fn project_list_text(projects: &[Project]) -> String {
-    if projects.is_empty() {
-        return "no projects\n".to_owned();
+/// Writes a command result: the success through [`emit_success`], with `human` rendering
+/// its text form, or the error through [`emit_failure`]; returns the exit code.
+pub fn emit<T: Serialize>(format: Format, result: Result<T, Error>, human: fn(&T) -> String) -> u8 {
+    match result {
+        Ok(data) => emit_success(format, &data, &human(&data)),
+        Err(err) => emit_failure(format, &err),
     }
-    projects
-        .iter()
-        .flat_map(|project| [project.name.as_str(), "\n"])
-        .collect()
 }
 
-/// Writes a project list to stdout and returns exit code 0.
-pub fn emit_projects(format: Format, projects: &[Project]) -> u8 {
-    emit_success(format, &projects, &project_list_text(projects))
+fn plural(count: i64, noun: &str) -> String {
+    if count == 1 {
+        format!("{count} {noun}")
+    } else {
+        format!("{count} {noun}s")
+    }
+}
+
+fn project_line(project: &ProjectView) -> String {
+    let archived = if project.archived { "  archived" } else { "" };
+    format!("{}  ({} open){archived}\n", project.name, project.open)
+}
+
+fn task_line(task: &TaskView) -> String {
+    format!(
+        "  #{}  P{}  {:<7}  {}\n",
+        task.id,
+        task.priority,
+        task.status.as_str(),
+        task.title
+    )
+}
+
+/// The human form of `tk ls`: the open tasks under a `name  (N open)` heading per project.
+pub fn task_list_text(list: &TaskList) -> String {
+    let mut projects: Vec<&str> = list
+        .tasks
+        .iter()
+        .map(|task| task.project.as_str())
+        .collect();
+    if let Some(project) = &list.scope.project {
+        projects.push(&project.name);
+    }
+    projects.sort_unstable();
+    projects.dedup();
+    if projects.is_empty() {
+        return "no open tasks\n".to_owned();
+    }
+    let mut text = String::new();
+    for project in projects {
+        let tasks: Vec<&TaskView> = list
+            .tasks
+            .iter()
+            .filter(|task| task.project == project)
+            .collect();
+        let _ = writeln!(text, "{project}  ({} open)", tasks.len());
+        for task in tasks {
+            text.push_str(&task_line(task));
+        }
+    }
+    text
+}
+
+/// The human form of `project ls`: one `name  (N open)` line per project, or `no projects`.
+pub fn project_list_text(list: &ProjectList) -> String {
+    if list.projects.is_empty() {
+        return "no projects\n".to_owned();
+    }
+    list.projects.iter().map(project_line).collect()
+}
+
+/// The human form of `project add`.
+pub fn project_added_text(data: &ProjectData) -> String {
+    format!("added project {}\n", data.project.name)
+}
+
+/// The human form of `project edit`.
+pub fn project_updated_text(data: &ProjectData) -> String {
+    format!("updated project {}\n", data.project.name)
+}
+
+/// The human form of `project show`.
+pub fn project_show_text(show: &ProjectShow) -> String {
+    let project = &show.project;
+    let counts = &show.counts;
+    let mut text = project_line(project);
+    let _ = writeln!(
+        text,
+        "path: {}\ndescription: {}",
+        project.path.as_deref().unwrap_or("-"),
+        project.description
+    );
+    let _ = writeln!(
+        text,
+        "tasks: todo {}, doing {}, blocked {}, done {}, dropped {}",
+        counts.todo, counts.doing, counts.blocked, counts.done, counts.dropped
+    );
+    if show.features.is_empty() {
+        text.push_str("features: none\n");
+    } else {
+        text.push_str("features:\n");
+        show.features
+            .iter()
+            .for_each(|feature| text.push_str(&feature_line(feature)));
+    }
+    text
+}
+
+/// The human form of `project archive`.
+pub fn project_archive_text(data: &ProjectArchive) -> String {
+    let name = &data.project.name;
+    match (data.changed, data.project.archived) {
+        (true, true) => format!("archived project {name}\n"),
+        (true, false) => format!("unarchived project {name}\n"),
+        (false, true) => format!("project {name} is already archived\n"),
+        (false, false) => format!("project {name} is not archived\n"),
+    }
+}
+
+/// The human form of `project rm`.
+pub fn project_removal_text(data: &ProjectRemoval) -> String {
+    format!(
+        "removed project {} and {}\n",
+        data.removed,
+        plural(data.tasks, "task")
+    )
+}
+
+fn feature_line(feature: &FeatureView) -> String {
+    format!(
+        "  {}  {} open / {} total\n",
+        feature.name, feature.open, feature.total
+    )
+}
+
+/// The human form of `feature ls`: the features under a heading per project.
+pub fn feature_list_text(list: &FeatureList) -> String {
+    let mut text = String::new();
+    let mut heading: Option<&str> = None;
+    for feature in &list.features {
+        if heading != Some(feature.project.as_str()) {
+            let _ = writeln!(text, "{}", feature.project);
+            heading = Some(&feature.project);
+        }
+        text.push_str(&feature_line(feature));
+    }
+    match (&list.scope.project, text.is_empty()) {
+        (Some(project), true) => format!("{}\n  no features\n", project.name),
+        (None, true) => "no features\n".to_owned(),
+        (_, false) => text,
+    }
+}
+
+/// The human form of `feature mv`.
+pub fn feature_move_text(data: &FeatureMove) -> String {
+    let feature = &data.feature;
+    if data.merged {
+        format!(
+            "merged feature {} into {} in {} ({} moved)\n",
+            data.from,
+            feature.name,
+            feature.project,
+            plural(data.moved, "task")
+        )
+    } else {
+        format!(
+            "renamed feature {} to {} in {} ({})\n",
+            data.from,
+            feature.name,
+            feature.project,
+            plural(data.moved, "task")
+        )
+    }
 }
 
 /// Writes an error to stderr and returns its exit code.
@@ -145,10 +308,11 @@ mod tests {
 
     use serde_json::{Value, json};
 
-    use super::{Format, project_list_text, render_failure, render_success};
+    use super::{Format, plural, project_list_text, render_failure, render_success};
+    use crate::command::ProjectView;
+    use crate::command::project::ProjectList;
     use crate::env::Env;
     use crate::error::Error;
-    use crate::model::Project;
 
     #[test]
     fn json_flag_wins_over_the_variable() {
@@ -225,18 +389,31 @@ mod tests {
 
     #[test]
     fn project_list_text_names_one_project_per_line() {
-        assert_eq!(project_list_text(&[]), "no projects\n");
-        let project = |name: &str| Project {
-            id: 1,
+        assert_eq!(
+            project_list_text(&ProjectList { projects: vec![] }),
+            "no projects\n"
+        );
+        let project = |name: &str, archived: bool, open: i64| ProjectView {
             name: name.into(),
             path: None,
             description: String::new(),
-            archived: false,
+            archived,
             created_at: "2026-09-27T12:00:00.000Z".into(),
+            open,
+        };
+        let list = ProjectList {
+            projects: vec![project("api", false, 1), project("old", true, 0)],
         };
         assert_eq!(
-            project_list_text(&[project("api"), project("web")]),
-            "api\nweb\n"
+            project_list_text(&list),
+            "api  (1 open)\nold  (0 open)  archived\n"
         );
+    }
+
+    #[test]
+    fn plural_counts() {
+        assert_eq!(plural(1, "task"), "1 task");
+        assert_eq!(plural(0, "task"), "0 tasks");
+        assert_eq!(plural(2, "task"), "2 tasks");
     }
 }

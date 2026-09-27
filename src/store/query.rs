@@ -206,6 +206,41 @@ impl Tx<'_> {
             .optional()?)
     }
 
+    /// Sets the name, path and description of a project.
+    pub fn update_project(
+        &self,
+        id: i64,
+        name: &str,
+        path: Option<&str>,
+        description: &str,
+    ) -> Result<Project, Error> {
+        self.tx
+            .query_row(
+                concat!(
+                    "UPDATE project SET name = ?2, path = ?3, description = ?4 WHERE id = ?1 \
+                     RETURNING ",
+                    project_columns!()
+                ),
+                params![id, name, path, description],
+                project_row,
+            )
+            .optional()?
+            .ok_or_else(|| Error::NotFound(format!("no project with id {id}")))
+    }
+
+    /// The number of tasks of a project per feature and status; `None` is the tasks
+    /// without a feature. Combinations without tasks are absent.
+    pub fn task_counts(&self, project_id: i64) -> Result<Vec<(Option<i64>, Status, i64)>, Error> {
+        let mut stmt = self.tx.prepare_cached(
+            "SELECT feature_id, status, count(*) FROM task WHERE project_id = ?1 \
+             GROUP BY feature_id, status",
+        )?;
+        let rows = stmt.query_map([project_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// Archives or unarchives a project.
     pub fn set_project_archived(&self, id: i64, archived: bool) -> Result<(), Error> {
         let changed = self.tx.execute(
@@ -260,6 +295,33 @@ impl Tx<'_> {
                 feature_row,
             )
             .optional()?)
+    }
+
+    /// Renames a feature.
+    pub fn rename_feature(&self, id: i64, name: &str) -> Result<(), Error> {
+        let changed = self.tx.execute(
+            "UPDATE feature SET name = ?2 WHERE id = ?1",
+            params![id, name],
+        )?;
+        expect_one(changed, "feature", id)
+    }
+
+    /// Moves every task of feature `from` to feature `to` and returns how many moved.
+    pub fn move_feature_tasks(&self, from: i64, to: i64) -> Result<usize, Error> {
+        Ok(self.tx.execute(
+            concat!(
+                "UPDATE task SET feature_id = ?2, updated_at = ",
+                now!(),
+                " WHERE feature_id = ?1"
+            ),
+            params![from, to],
+        )?)
+    }
+
+    /// Deletes a feature; its tasks, if any, lose their feature.
+    pub fn delete_feature(&self, id: i64) -> Result<(), Error> {
+        let changed = self.tx.execute("DELETE FROM feature WHERE id = ?1", [id])?;
+        expect_one(changed, "feature", id)
     }
 
     /// Creates a task in status `todo`.

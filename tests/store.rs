@@ -39,7 +39,10 @@ fn project_ls_on_a_new_database_prints_an_empty_list() {
         .expect("run tk");
     assert_eq!(output.status.code(), Some(0));
     assert!(output.stderr.is_empty());
-    assert_eq!(json_line(&output.stdout), json!({"ok": true, "data": []}));
+    assert_eq!(
+        json_line(&output.stdout),
+        json!({"ok": true, "data": {"projects": []}})
+    );
 }
 
 #[test]
@@ -89,7 +92,10 @@ fn concurrent_first_opens_all_succeed_and_create_the_schema_once() {
     assert_eq!(outputs.len(), PROCESSES);
     for output in &outputs {
         assert_eq!(output.status.code(), Some(0), "{output:?}");
-        assert_eq!(json_line(&output.stdout), json!({"ok": true, "data": []}));
+        assert_eq!(
+            json_line(&output.stdout),
+            json!({"ok": true, "data": {"projects": []}})
+        );
     }
 
     let conn = rusqlite::Connection::open(sandbox.db()).expect("open database");

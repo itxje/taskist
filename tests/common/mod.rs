@@ -11,8 +11,12 @@
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
+use std::process::Output;
 
 use assert_cmd::Command;
+use serde_json::Value;
+use taskist::model::Status;
+use taskist::store::{NewTask, Store};
 use tempfile::TempDir;
 
 /// A temporary directory holding the database, home, data and working directories of one test.
@@ -115,4 +119,91 @@ impl Sandbox {
 
 fn tk_path() -> &'static Path {
     assert_cmd::cargo::cargo_bin!("tk")
+}
+
+impl Sandbox {
+    /// Creates a directory below the sandbox root, with its missing parents, and returns it.
+    pub fn dir(&self, relative: &str) -> PathBuf {
+        let dir = self.root().join(relative);
+        std::fs::create_dir_all(&dir).expect("create directory");
+        dir
+    }
+
+    /// Runs `tk --json` with `args` and returns the `data` of its success envelope.
+    pub fn ok(&self, args: &[&str]) -> Value {
+        ok_data(&self.tk().arg("--json").args(args).output().expect("run tk"))
+    }
+
+    /// Opens the sandbox database through the library, to seed rows no command creates yet.
+    pub fn store(&self) -> Store {
+        Store::open(&self.db()).expect("open database")
+    }
+
+    /// Creates a task in a project, in an optional feature created on first use, and
+    /// moves it to `status`; returns its id.
+    pub fn seed_task(&self, project: &str, feature: Option<&str>, status: Status) -> i64 {
+        self.store()
+            .write(|tx| {
+                let project = tx.project_by_name(project)?.expect("seeded project exists");
+                let feature_id = match feature {
+                    None => None,
+                    Some(name) => Some(match tx.feature_by_name(project.id, name)? {
+                        Some(feature) => feature.id,
+                        None => tx.insert_feature(project.id, name)?.id,
+                    }),
+                };
+                let task = tx.insert_task(&NewTask {
+                    project_id: project.id,
+                    feature_id,
+                    title: "seeded",
+                    body: "",
+                    priority: 2,
+                    created_by: "seed",
+                })?;
+                if status != Status::Todo {
+                    tx.set_status(task.id, status)?;
+                }
+                Ok(task.id)
+            })
+            .expect("seed task")
+    }
+}
+
+/// Parses output that must be exactly one newline-terminated JSON line.
+pub fn json_line(bytes: &[u8]) -> Value {
+    let text = std::str::from_utf8(bytes).expect("utf-8 output");
+    assert_eq!(text.lines().count(), 1, "one line expected: {text:?}");
+    assert!(text.ends_with('\n'), "newline-terminated: {text:?}");
+    serde_json::from_str(text).expect("valid JSON")
+}
+
+/// Checks a JSON success: exit 0, nothing on stderr, `ok` true; returns `data`.
+pub fn ok_data(output: &Output) -> Value {
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert!(output.stderr.is_empty(), "{output:?}");
+    let envelope = json_line(&output.stdout);
+    assert_eq!(envelope["ok"], Value::Bool(true), "{envelope}");
+    envelope["data"].clone()
+}
+
+/// Checks a JSON failure with `exit` and `code`, nothing on stdout; returns the message.
+pub fn err_message(output: &Output, exit: i32, code: &str) -> String {
+    assert_eq!(output.status.code(), Some(exit), "{output:?}");
+    assert!(output.stdout.is_empty(), "{output:?}");
+    let envelope = json_line(&output.stderr);
+    assert_eq!(envelope["ok"], Value::Bool(false), "{envelope}");
+    assert_eq!(envelope["error"]["code"], code, "{envelope}");
+    envelope["error"]["message"]
+        .as_str()
+        .expect("message")
+        .to_owned()
+}
+
+/// The canonical form of a directory, as `tk` stores it.
+pub fn real(path: &Path) -> String {
+    std::fs::canonicalize(path)
+        .expect("canonicalize")
+        .to_str()
+        .expect("utf-8 path")
+        .to_owned()
 }
