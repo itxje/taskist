@@ -255,7 +255,7 @@ null and `source` one of `flag`, `env`, `cwd` and `none`.
 | `brief` | `{scope, text}` |
 | `export --format json` | the export document |
 | `export --format md`, `guide`, `completions` | `{text}` |
-| `import` | `{ids}`: the created ids in file order |
+| `import` | `{created}`: the ids of the created tasks in file order |
 
 ## Error codes
 

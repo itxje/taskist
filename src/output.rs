@@ -278,13 +278,13 @@ pub fn document_text(document: &Document) -> String {
 /// The human form of `tk import`: the number of created tasks and their ids.
 pub fn import_text(imported: &Imported) -> String {
     let count = plural(
-        i64::try_from(imported.ids.len()).unwrap_or(i64::MAX),
+        i64::try_from(imported.created.len()).unwrap_or(i64::MAX),
         "task",
     );
-    if imported.ids.is_empty() {
+    if imported.created.is_empty() {
         return format!("imported {count}\n");
     }
-    let ids: Vec<String> = imported.ids.iter().map(|id| format!("#{id}")).collect();
+    let ids: Vec<String> = imported.created.iter().map(|id| format!("#{id}")).collect();
     format!("imported {count}: {}\n", ids.join(", "))
 }
 

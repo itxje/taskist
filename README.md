@@ -90,7 +90,8 @@ option, the status transitions and each command's JSON data.
 - Argument errors exit 2 and use the JSON envelope when `--json` is among the arguments or
   `TASKIST_FORMAT=json` is set. `--help` and `--version` print text and exit 0.
 - A task is `{id, project, feature, title, body, status, priority, tags, created_at,
-  updated_at, closed_at, created_by}`. Field names are stable; changes only add fields.
+  updated_at, closed_at, created_by}`; `tk import` returns `{created: [ids]}`. Field names
+  are stable; changes only add fields.
 - Status changes are idempotent: `tk done 3` on a done task succeeds without a change.
 
 ## Exit codes

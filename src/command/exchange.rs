@@ -383,11 +383,11 @@ fn task_markdown(text: &mut String, entry: &ExportTask) {
     }
 }
 
-/// `import` data: `{ids}`, in file order.
+/// `import` data: `{created}`, the ids in file order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Imported {
     /// The ids of the created tasks, in file order.
-    pub ids: Vec<i64>,
+    pub created: Vec<i64>,
 }
 
 /// One line of an import file.
@@ -528,14 +528,14 @@ pub fn import(
         } else {
             None
         };
-        let ids = entries
+        let created = entries
             .iter()
             .map(|entry| {
                 create_entry(tx, env, &target, &mut scoped, entry)
                     .map_err(|err| at_line(entry.line, err))
             })
             .collect::<Result<_, _>>()?;
-        Ok(Imported { ids })
+        Ok(Imported { created })
     })
 }
 

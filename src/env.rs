@@ -34,13 +34,13 @@ impl Env {
     /// use taskist::env::Env;
     ///
     /// let env = Env::new(
-    ///     [("HOME".into(), "/home/ada".into()), ("USER".into(), "ada".into())],
+    ///     [("HOME".into(), "/users/ada".into()), ("USER".into(), "ada".into())],
     ///     PathBuf::from("/work"),
     ///     false,
     /// );
     /// assert_eq!(
     ///     env.database_path()?,
-    ///     Path::new("/home/ada/.local/share/taskist/taskist.db")
+    ///     Path::new("/users/ada/.local/share/taskist/taskist.db")
     /// );
     /// assert_eq!(env.actor(None), "ada");
     /// assert_eq!(env.actor(Some("agent:docs")), "agent:docs");

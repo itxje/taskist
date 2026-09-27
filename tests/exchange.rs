@@ -596,7 +596,7 @@ fn import_creates_one_task_per_line_in_file_order() {
             .output()
             .expect("run tk"),
     );
-    assert_eq!(data, json!({"ids": [1, 2, 3]}));
+    assert_eq!(data, json!({"created": [1, 2, 3]}));
 
     let first = sandbox.ok(&["show", "1"])["task"].clone();
     assert_eq!(first["title"], "First");
@@ -642,7 +642,7 @@ fn import_reads_stdin_and_uses_the_resolved_scope() {
             .output()
             .expect("run tk"),
     );
-    assert_eq!(data, json!({"ids": [1, 2]}));
+    assert_eq!(data, json!({"created": [1, 2]}));
     assert_eq!(sandbox.ok(&["show", "1"])["task"]["project"], "web");
     assert_eq!(sandbox.ok(&["show", "2"])["task"]["project"], "api");
 
@@ -655,7 +655,7 @@ fn import_reads_stdin_and_uses_the_resolved_scope() {
             .output()
             .expect("run tk"),
     );
-    assert_eq!(data, json!({"ids": [3]}));
+    assert_eq!(data, json!({"created": [3]}));
     assert_eq!(sandbox.ok(&["show", "3"])["task"]["project"], "api");
 
     let dir = sandbox.dir("code/web");
@@ -669,7 +669,7 @@ fn import_reads_stdin_and_uses_the_resolved_scope() {
             .output()
             .expect("run tk"),
     );
-    assert_eq!(data, json!({"ids": [4]}));
+    assert_eq!(data, json!({"created": [4]}));
     assert_eq!(sandbox.ok(&["show", "4"])["task"]["project"], "web");
 }
 
@@ -861,7 +861,7 @@ fn an_empty_import_creates_nothing() {
             .output()
             .expect("run tk"),
     );
-    assert_eq!(data, json!({"ids": []}));
+    assert_eq!(data, json!({"created": []}));
     let human = stdout(&sandbox.tk().args(["import", "-"]).output().expect("run tk"));
     assert_eq!(human, "imported 0 tasks\n");
 }

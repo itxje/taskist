@@ -56,7 +56,9 @@ Adding the guide, completions, documentation, concurrency test and coverage
   `clap_complete` 4.6.11 and, through its default `nushell` feature, `clap_complete_nushell`
   4.6.2. The value names of its `Shell` are `bash`, `elvish`, `fish`, `nushell`, `powershell`
   and `zsh`.
-- The import data shape is `{ids}`, which the guide documents as built.
+- The output contract of the plan fixes the `import` data as `{created: [ids]}`, but the
+  command serialized `{ids: [...]}`. Field names are a public contract, so the field is
+  renamed to `created` and the guide and README document `{created}`.
 
 ### Proposal
 
@@ -92,3 +94,13 @@ Adding the guide, completions, documentation, concurrency test and coverage
 - `cargo llvm-cov nextest --locked --summary-only` ran 215 tests, all passed, and reported
   97.91% line coverage (3725 lines, 78 missed), 94.16% region coverage and 95.88% function
   coverage.
+- `import` data renamed to `{created}`: with the four `tests/exchange.rs` expectations changed
+  to `{"created": [...]}` first, `import_creates_one_task_per_line_in_file_order`,
+  `import_reads_stdin_and_uses_the_resolved_scope` and `an_empty_import_creates_nothing`
+  failed with `left: Object {"ids": ...}`, `right: Object {"created": ...}`; they pass after
+  the rename.
+- Under the load of the full test stage
+  (`cargo nextest run --all-features --locked --no-tests=fail --run-ignored all --no-fail-fast`),
+  run 10 consecutive times, every run passed all 215 tests with 0 skipped,
+  `tests/concurrency.rs` included. `cargo llvm-cov nextest --locked --summary-only` on the same
+  commit reported 215 passed and 97.91% line coverage (3725 lines, 78 missed).
