@@ -170,7 +170,7 @@ impl Sandbox {
 }
 
 impl Sandbox {
-    /// Moves a task to `status` through the library, as no command changes statuses yet.
+    /// Moves a task to `status` through the library, bypassing the transition table.
     pub fn set_status(&self, id: i64, status: Status) {
         self.store()
             .write(|tx| tx.set_status(id, status))

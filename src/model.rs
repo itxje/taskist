@@ -199,6 +199,11 @@ impl Action {
         }
     }
 
+    /// The status this action moves a task to.
+    pub const fn target(self) -> Status {
+        self.rule().to
+    }
+
     /// The outcome of applying this action to a task in status `from`.
     pub fn apply(self, from: Status) -> Outcome {
         let rule = self.rule();
@@ -400,6 +405,8 @@ mod tests {
         for action in Action::ALL {
             let rule = action.rule();
             assert!(!rule.from.contains(&rule.to), "{action:?}");
+            assert_eq!(action.target(), rule.to, "{action:?}");
+            assert_eq!(action.apply(rule.to), Outcome::NoOp, "{action:?}");
         }
     }
 

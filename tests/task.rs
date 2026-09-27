@@ -347,12 +347,13 @@ fn grouped_fixture(sandbox: &Sandbox) -> [i64; 6] {
     let readme = add(sandbox, &["Clean up README", "-p", "web", "--pri", "3"]);
     let shipped = add(sandbox, &["Shipped", "-p", "web", "-f", "auth"]);
     let flags = add(sandbox, &["Parse flags", "-p", "cli", "--tag", "x"]);
-    sandbox.set_status(race, Status::Doing);
-    sandbox.set_status(orders, Status::Blocked);
-    sandbox.note(orders, NoteKind::Blocked, "old reason");
-    sandbox.note(orders, NoteKind::Note, "not a reason");
-    sandbox.note(orders, NoteKind::Blocked, "waiting on schema");
-    sandbox.set_status(shipped, Status::Done);
+    let orders_id = orders.to_string();
+    sandbox.ok(&["start", &race.to_string()]);
+    sandbox.ok(&["block", &orders_id, "old reason"]);
+    sandbox.ok(&["note", &orders_id, "not a reason"]);
+    sandbox.ok(&["start", &orders_id]);
+    sandbox.ok(&["block", &orders_id, "waiting on schema"]);
+    sandbox.ok(&["done", &shipped.to_string()]);
     [sso, race, orders, readme, shipped, flags]
 }
 

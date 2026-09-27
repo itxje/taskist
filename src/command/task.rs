@@ -165,7 +165,7 @@ fn missing_feature(task: &Task, feature: i64) -> Error {
 }
 
 /// The view of one task, with its project and feature names read from the store.
-fn view(tx: &Tx<'_>, task: Task) -> Result<TaskView, Error> {
+pub(super) fn view(tx: &Tx<'_>, task: Task) -> Result<TaskView, Error> {
     let project = tx.project_by_id(task.project_id)?.ok_or_else(|| {
         Error::Internal(format!(
             "task {} refers to the missing project {}",
@@ -183,7 +183,7 @@ fn view(tx: &Tx<'_>, task: Task) -> Result<TaskView, Error> {
     Ok(task_view(task, &project.name, feature))
 }
 
-fn task_by_id(tx: &Tx<'_>, id: i64) -> Result<Task, Error> {
+pub(super) fn task_by_id(tx: &Tx<'_>, id: i64) -> Result<Task, Error> {
     tx.task(id)?
         .ok_or_else(|| Error::NotFound(format!("no task with id {id}")))
 }

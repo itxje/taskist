@@ -12,6 +12,7 @@ use crate::command::project::{
     ProjectArchive, ProjectData, ProjectList, ProjectRemoval, ProjectShow,
 };
 use crate::command::task::{NextTask, TaskData, TaskList, TaskShow};
+use crate::command::transition::TransitionData;
 use crate::command::{FeatureView, ProjectView, TaskView};
 use crate::env::Env;
 use crate::error::Error;
@@ -318,6 +319,30 @@ pub fn task_added_text(data: &TaskData) -> String {
 pub fn task_updated_text(data: &TaskData) -> String {
     format!(
         "updated #{} in {}: {}\n",
+        data.task.id,
+        location(&data.task),
+        data.task.title
+    )
+}
+
+/// The human form of the status commands: one line per task saying whether it changed.
+pub fn transition_text(data: &TransitionData) -> String {
+    let mut text = String::new();
+    for entry in &data.tasks {
+        let state = if entry.changed { "now" } else { "already" };
+        let _ = writeln!(
+            text,
+            "#{} is {state} {}: {}",
+            entry.task.id, entry.task.status, entry.task.title
+        );
+    }
+    text
+}
+
+/// The human form of `tk note`.
+pub fn task_noted_text(data: &TaskData) -> String {
+    format!(
+        "noted #{} in {}: {}\n",
         data.task.id,
         location(&data.task),
         data.task.title
