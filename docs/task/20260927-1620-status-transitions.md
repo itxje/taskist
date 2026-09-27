@@ -68,9 +68,11 @@ Adding the status transition and note commands
 
 ### Results
 
-- Failing first: every test of `tests/transition.rs` failed before the commands existed, for
-  example `done_takes_leading_integers_as_ids_and_one_note` with `unrecognized subcommand
-  'done'` (exit 2 instead of 0).
+- Failing first: 12 of the 14 tests of `tests/transition.rs` failed before the commands
+  existed, for example `done_takes_leading_integers_as_ids_and_one_note` with `unrecognized
+  subcommand 'done'` (exit 2 instead of 0). The two that passed are the calibration test,
+  which uses no new command, and `done_refuses_ambiguous_arguments_as_usage_errors`, whose
+  expected exit 2 the unknown subcommand also produced.
 - `tests/transition.rs` covers each change of the table (14), each no-op (5, comparing
   `tk show --json` and the database file before and after), each invalid transition (6), an
   unknown id for all six commands, all-or-nothing runs with several ids, the argument split of
