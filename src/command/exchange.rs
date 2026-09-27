@@ -34,7 +34,8 @@ pub struct Brief {
 ///
 /// Per project a `# name (N open)` heading, per feature a `## name` heading, `## (no
 /// feature)` last, with one `- #id P<n> status title` line per task in `ls` order, then a
-/// `Blocked:` list with the latest reason of every blocked task. A project without open
+/// `Blocked:` list with the latest reason of every blocked task, its continuation lines
+/// indented under the item so they cannot form a heading or item. A project without open
 /// tasks is left out unless it is the scoped one.
 pub fn brief(env: &Env, request: Request<'_>) -> Result<Brief, Error> {
     let list = task::list(env, request, ListFilter::default())?;
@@ -82,7 +83,13 @@ fn brief_markdown(list: &TaskList) -> String {
                     .reasons
                     .get(&task.id)
                     .map_or("no reason recorded", String::as_str);
-                let _ = writeln!(text, "- #{} {}: {reason}", task.id, task.title);
+                let _ = writeln!(
+                    text,
+                    "- #{} {}: {}",
+                    task.id,
+                    task.title,
+                    continued(reason, "  ")
+                );
             }
         }
         sections.push(text);
@@ -423,10 +430,21 @@ fn read_source(env: &Env, file: &Path) -> Result<Vec<u8>, Error> {
     Ok(bytes)
 }
 
+/// A parse error of one line, positioned by column only: the caller names the line of the
+/// file, and the parser's own line number, always 1 within a single line, would contradict it.
+fn parse_error(err: &serde_json::Error) -> Error {
+    let message = err.to_string();
+    if err.line() == 0 {
+        return Error::Usage(message);
+    }
+    let position = format!(" at line {} column {}", err.line(), err.column());
+    let message = message.strip_suffix(&position).unwrap_or(&message);
+    Error::Usage(format!("column {}: {message}", err.column()))
+}
+
 /// Parses and validates one non-blank line.
 fn entry(env: &Env, line: usize, text: &str, by: Option<&str>) -> Result<Entry, Error> {
-    let parsed: ImportLine =
-        serde_json::from_str(text).map_err(|err| Error::Usage(err.to_string()))?;
+    let parsed: ImportLine = serde_json::from_str(text).map_err(|err| parse_error(&err))?;
     let title = normalize_title(&parsed.title)?;
     let priority = validate_priority(parsed.pri.unwrap_or(DEFAULT_PRIORITY))?;
     if let Some(project) = &parsed.project {
@@ -467,19 +485,30 @@ fn entries(env: &Env, bytes: &[u8], by: Option<&str>) -> Result<Vec<Entry>, Erro
 
 /// `tk import`: creates one `todo` task per non-blank JSON line, all in one transaction.
 ///
-/// A line's `project` must exist and overrides the resolved scope, which is resolved only
-/// when a line has no project. Any bad line fails the import, changes nothing, and the
-/// error names its line number.
+/// A line's `project` must exist and overrides the resolved scope. A project named by `-p`
+/// or `TASKIST_PROJECT` is resolved before any line is read, so an unknown one fails even
+/// when every line names its own; the directory is read only for the first line without a
+/// project. Any bad line fails the import, changes nothing, and the error names its line
+/// number.
 pub fn import(
     env: &Env,
     file: &Path,
     request: Request<'_>,
     by: Option<&str>,
 ) -> Result<Imported, Error> {
-    let entries = entries(env, &read_source(env, file)?, by)?;
+    let named = request.project.is_some()
+        || env
+            .var("TASKIST_PROJECT")
+            .is_some_and(|value| !value.is_empty());
     let target = scope::target(env, request)?;
+    let bytes = read_source(env, file)?;
     open_store(env)?.write(|tx| {
-        let mut scoped = None;
+        let mut scoped = if named {
+            Some(scope::resolve(tx, env, &target)?.require()?)
+        } else {
+            None
+        };
+        let entries = entries(env, &bytes, by)?;
         let ids = entries
             .iter()
             .map(|entry| {
@@ -523,7 +552,7 @@ fn create_entry(
 
 #[cfg(test)]
 mod tests {
-    use super::{at_line, continued};
+    use super::{at_line, continued, parse_error};
     use crate::error::Error;
 
     #[test]
@@ -550,6 +579,15 @@ mod tests {
             },
         );
         assert_eq!(schema.code(), "unsupported_schema");
+    }
+
+    #[test]
+    fn parse_errors_carry_a_column_and_no_line() {
+        let err = serde_json::from_str::<serde_json::Value>("{\"a\": ").unwrap_err();
+        assert_eq!(
+            parse_error(&err).to_string(),
+            "column 6: EOF while parsing a value"
+        );
     }
 
     #[test]

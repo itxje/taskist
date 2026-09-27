@@ -118,6 +118,35 @@ fn brief_lists_open_tasks_by_feature_and_flags_blocked_ones() {
 }
 
 #[test]
+fn a_multi_line_blocked_reason_stays_inside_its_item() {
+    let sandbox = Sandbox::new();
+    project(&sandbox, &["web"]);
+    add(&sandbox, &["Paginate /orders", "-p", "web"]);
+    sandbox.ok(&["block", "1", "first\n# api (9 open)\n- #1 forged"]);
+    let expected = "\
+# web (1 open)
+
+## (no feature)
+- #1 P2 blocked Paginate /orders
+
+Blocked:
+- #1 Paginate /orders: first
+  # api (9 open)
+  - #1 forged
+";
+    let text = stdout(
+        &sandbox
+            .tk()
+            .args(["brief", "-p", "web"])
+            .output()
+            .expect("run tk"),
+    );
+    assert_eq!(text, expected);
+    let data = ok_data(&json_run(&sandbox, &["brief", "-p", "web"]));
+    assert_eq!(data["text"], expected, "{data}");
+}
+
+#[test]
 fn brief_covers_every_project_without_scope_and_with_all_projects() {
     let sandbox = Sandbox::new();
     seed_brief(&sandbox);
@@ -552,6 +581,67 @@ fn import_without_a_resolved_project_names_the_flag() {
     let message = err_message(&output, 2, "usage");
     assert!(message.contains("line 2"), "{message}");
     assert!(message.contains("-p/--project"), "{message}");
+    assert_eq!(task_count(&sandbox), 0);
+}
+
+/// The line numbers a message names: every number that follows the word `line`.
+fn line_numbers(message: &str) -> Vec<&str> {
+    message
+        .split("line ")
+        .skip(1)
+        .map(|rest| {
+            rest.split(|c: char| !c.is_ascii_digit())
+                .next()
+                .unwrap_or("")
+        })
+        .collect()
+}
+
+#[test]
+fn an_import_error_names_only_the_line_of_the_file() {
+    assert_eq!(line_numbers("line 3: x at line 1 column 2"), ["3", "1"]);
+    let cases = [
+        ("{\"title\": \"Good\"}\n\n{\"title\": \"Broken\"\n", "3"),
+        (
+            "{\"title\": \"Good\"}\n{\"title\": \"Extra\", \"owner\": \"x\"}\n",
+            "2",
+        ),
+        ("{\"title\": \"Good\"}\n{\"pri\": 1}\n", "2"),
+    ];
+    for (text, line) in cases {
+        let sandbox = Sandbox::new();
+        project(&sandbox, &["web"]);
+        let file = write_file(&sandbox, "tasks.jsonl", text);
+        let output = json_run(&sandbox, &["import", &file, "-p", "web"]);
+        let message = err_message(&output, 2, "usage");
+        assert!(message.starts_with(&format!("line {line}: ")), "{message}");
+        assert_eq!(line_numbers(&message), [line], "{message}");
+        assert_eq!(task_count(&sandbox), 0);
+    }
+}
+
+#[test]
+fn import_refuses_an_unknown_project_flag_or_variable() {
+    let sandbox = Sandbox::new();
+    project(&sandbox, &["web"]);
+    let file = write_file(
+        &sandbox,
+        "tasks.jsonl",
+        "{\"title\": \"Good\", \"project\": \"web\"}\n",
+    );
+    let output = json_run(&sandbox, &["import", &file, "-p", "nosuch"]);
+    let message = err_message(&output, 3, "not_found");
+    assert!(message.contains("nosuch"), "{message}");
+    assert_eq!(task_count(&sandbox), 0);
+
+    let output = sandbox
+        .tk()
+        .args(["--json", "import", &file])
+        .env("TASKIST_PROJECT", "nosuch")
+        .output()
+        .expect("run tk");
+    let message = err_message(&output, 3, "not_found");
+    assert!(message.contains("nosuch"), "{message}");
     assert_eq!(task_count(&sandbox), 0);
 }
 
