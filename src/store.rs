@@ -274,13 +274,49 @@ mod tests {
         assert_eq!(pragma(&store.conn, "synchronous"), "1");
         assert_eq!(pragma(&store.conn, "busy_timeout"), "5000");
         #[cfg(unix)]
+        assert_created_directories_are_private(dir.path());
+
+        // A umask of 077 alone yields 0700, so the mode is also checked in a child run of
+        // this test binary under umask 022, where a directory created without a mode gets
+        // 0755; the child reports such a control directory to show the umask took effect.
+        #[cfg(target_os = "linux")]
         {
-            use std::os::unix::fs::PermissionsExt;
-            for created in [dir.path().join("a"), dir.path().join("a").join("b")] {
-                let mode = std::fs::metadata(&created).unwrap().permissions().mode();
-                assert_eq!(mode & 0o777, 0o700, "{}", created.display());
-            }
+            let output = std::process::Command::new("/usr/bin/sh")
+                .arg("-c")
+                .arg(r#"umask 022 && exec "$0" --exact "$1" --nocapture"#)
+                .arg(format!("/proc/{}/exe", std::process::id()))
+                .arg("store::tests::created_directories_are_private")
+                .stdin(std::process::Stdio::null())
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(output.status.success(), "{output:?}");
+            assert!(stdout.contains("test result: ok. 1 passed"), "{stdout}");
+            assert!(stdout.contains("control directory mode 755"), "{stdout}");
         }
+    }
+
+    /// Checks that the directories `a` and `a/b` below `root` have mode 0700.
+    #[cfg(unix)]
+    fn assert_created_directories_are_private(root: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        for created in [root.join("a"), root.join("a").join("b")] {
+            let mode = std::fs::metadata(&created).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o700, "{}", created.display());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn created_directories_are_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        Store::open(&dir.path().join("a").join("b").join("taskist.db")).unwrap();
+        assert_created_directories_are_private(dir.path());
+        let control = dir.path().join("control");
+        std::fs::create_dir(&control).unwrap();
+        let mode = std::fs::metadata(&control).unwrap().permissions().mode() & 0o777;
+        println!("control directory mode {mode:o}");
     }
 
     #[test]
