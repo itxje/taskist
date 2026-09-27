@@ -206,10 +206,12 @@ fn databases_after_project_ls(sandbox: &Sandbox, mut cmd: assert_cmd::Command) -
     let mut before = Vec::new();
     files_named_db(sandbox.root(), &mut before);
     assert!(before.is_empty(), "{before:?}");
+    // Text output shows that no `TASKIST_FORMAT` from the caller reached `tk`.
     cmd.args(["project", "ls"])
         .timeout(PROBE_TIMEOUT)
         .assert()
-        .code(0);
+        .code(0)
+        .stdout("no projects\n");
     let mut found = Vec::new();
     files_named_db(sandbox.root(), &mut found);
     found
@@ -309,4 +311,86 @@ fn tk_runs_in_the_work_directory() {
             "{name}: {stderr:?}"
         );
     }
+}
+
+/// The tests that start `tk` through the helper and check where it creates its database.
+const CONFINEMENT_TESTS: [&str; 3] = [
+    "tk_creates_the_database_at_taskist_db",
+    "tk_without_taskist_db_creates_the_database_under_xdg_data_home",
+    "tk_without_taskist_db_or_xdg_data_home_creates_the_database_under_home",
+];
+
+/// Every file below `dir`.
+fn files_below(dir: &Path, found: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).expect("read directory") {
+        let path = entry.expect("directory entry").path();
+        if path.is_dir() {
+            files_below(&path, found);
+        } else {
+            found.push(path);
+        }
+    }
+}
+
+fn decoy_dir() -> tempfile::TempDir {
+    let decoy = tempfile::tempdir().expect("create decoy directory");
+    for dir in ["home", "data"] {
+        std::fs::create_dir(decoy.path().join(dir)).expect("create decoy subdirectory");
+    }
+    decoy
+}
+
+/// Sets every variable `tk` reads to a decoy inside `decoy`; stdin is closed.
+fn with_decoys(mut cmd: std::process::Command, decoy: &Path) -> std::process::Command {
+    cmd.env("TASKIST_DB", decoy.join("user.db"))
+        .env("TASKIST_FORMAT", "json")
+        .env("HOME", decoy.join("home"))
+        .env("XDG_DATA_HOME", decoy.join("data"))
+        .stdin(std::process::Stdio::null());
+    cmd
+}
+
+/// Runs the confinement tests again in a child of this test binary whose environment
+/// carries decoy values for every variable `tk` reads, all pointing into a second
+/// temporary directory. A helper that lets the caller's environment through hands the
+/// decoys to `tk`: the database lands in the decoy directory or the output turns into JSON.
+#[test]
+fn confinement_tests_hold_when_the_caller_sets_taskist_variables() {
+    // Control: an unconfined `tk` given the decoy environment writes into the decoy
+    // directory and prints JSON, so the decoys are strong enough to be noticed.
+    let control = decoy_dir();
+    let output = with_decoys(
+        std::process::Command::new(assert_cmd::cargo::cargo_bin!("tk")),
+        control.path(),
+    )
+    .args(["project", "ls"])
+    .output()
+    .expect("run tk");
+    assert_eq!(output.stdout, b"{\"ok\":true,\"data\":[]}\n", "{output:?}");
+    assert!(control.path().join("user.db").is_file());
+
+    let decoy = decoy_dir();
+    let output = with_decoys(
+        std::process::Command::new(std::env::current_exe().expect("test binary")),
+        decoy.path(),
+    )
+    .args(CONFINEMENT_TESTS)
+    .args(["--exact", "--test-threads=1"])
+    .output()
+    .expect("run the test binary");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{output:?}");
+    assert!(
+        stdout.contains(&format!(
+            "test result: ok. {} passed",
+            CONFINEMENT_TESTS.len()
+        )),
+        "every confinement test ran: {stdout}"
+    );
+    let mut touched = Vec::new();
+    files_below(decoy.path(), &mut touched);
+    assert!(
+        touched.is_empty(),
+        "the decoy directory was written: {touched:?}"
+    );
 }
