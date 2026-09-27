@@ -32,4 +32,4 @@ Each plan is a single line linking to its detail file. All detailed information 
 ## Plans
 
 - [-] [**20260927-1154-taskist-mvp Design and build the taskist CLI MVP**](20260927-1154-taskist-mvp.md) `2026-09-27`
-- [-] [**20260927-1728-ci-and-release Add GitHub CI and static musl release binaries**](20260927-1728-ci-and-release.md) `2026-09-27`
+- [x] [**20260927-1728-ci-and-release Add GitHub CI and static musl release binaries**](20260927-1728-ci-and-release.md) `2026-09-27`

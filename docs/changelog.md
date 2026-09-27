@@ -55,3 +55,7 @@ Task `20260927-2000-empty-values-coverage-map` completed: the guide and the READ
 ## 2026-09-27 17:36 [decision]
 
 Plan `20260927-1728-ci-and-release` approved: GitHub Actions CI runs the quality gates and a static musl build on native `x86_64` and `aarch64` runners; a `v*` tag builds `tk` for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` with the `dist` profile (bundled SQLite compiled by `musl-gcc`) and publishes the archives with `SHA256SUMS` as a GitHub release. Actions are pinned to commit SHAs and CI tools to exact versions.
+
+## 2026-09-27 17:38 [progress]
+
+Task `20260927-1728-ci-and-release` completed: CI passes on `main` (quality gates, and static musl builds on native `x86_64` and `aarch64` runners that run `tk --version`). Release `v0.1.0` is published with `tk-0.1.0-x86_64-unknown-linux-musl.tar.gz`, `tk-0.1.0-aarch64-unknown-linux-musl.tar.gz` and `SHA256SUMS`; the downloaded aarch64 binary verifies against the checksums, is statically linked and runs.
