@@ -44,7 +44,7 @@ pub enum Command {
         )]
         feature: Option<String>,
         /// Priority, 0 (most urgent) to 3 [default: 2].
-        #[arg(long = "pri", value_name = "N")]
+        #[arg(long = "pri", value_name = "N", allow_hyphen_values = true)]
         priority: Option<u8>,
         /// Tag; repeat for several.
         #[arg(long = "tag", value_name = "TAG", allow_hyphen_values = true)]
@@ -83,7 +83,7 @@ pub enum Command {
         #[arg(long)]
         all: bool,
         /// Show at most this many tasks, in display order.
-        #[arg(long, value_name = "N")]
+        #[arg(long, value_name = "N", allow_hyphen_values = true)]
         limit: Option<usize>,
     },
     /// Show a task with all its notes.
@@ -102,7 +102,7 @@ pub enum Command {
         #[arg(long, value_name = "TEXT", allow_hyphen_values = true)]
         body: Option<String>,
         /// New priority, 0 (most urgent) to 3.
-        #[arg(long = "pri", value_name = "N")]
+        #[arg(long = "pri", value_name = "N", allow_hyphen_values = true)]
         priority: Option<u8>,
         /// Move the task to this feature, created when it does not exist.
         #[arg(

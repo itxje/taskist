@@ -475,6 +475,12 @@ fn task_list(
 
 /// `tk ls`: the tasks of the resolved scope that pass the filters, in display order.
 pub fn list(env: &Env, request: Request<'_>, filter: ListFilter<'_>) -> Result<TaskList, Error> {
+    if let Some(feature) = filter.feature {
+        validate_name("feature name", feature)?;
+    }
+    if let Some(tag) = filter.tag {
+        validate_name("tag", tag)?;
+    }
     open_store(env)?.read(|tx| {
         let scope = scope::resolve(tx, env, request)?;
         let covered = covered(tx, &scope)?;
@@ -500,6 +506,9 @@ pub fn list(env: &Env, request: Request<'_>, filter: ListFilter<'_>) -> Result<T
 /// `tk next`: the first `todo` or `doing` task by priority, then `doing` before `todo`,
 /// then creation time, then id.
 pub fn next(env: &Env, request: Request<'_>, feature: Option<&str>) -> Result<NextTask, Error> {
+    if let Some(feature) = feature {
+        validate_name("feature name", feature)?;
+    }
     open_store(env)?.read(|tx| {
         let scope = scope::resolve(tx, env, request)?;
         let covered = covered(tx, &scope)?;
@@ -521,14 +530,41 @@ pub fn next(env: &Env, request: Request<'_>, feature: Option<&str>) -> Result<Ne
     })
 }
 
+/// Folds case without context: every character is replaced by the lowercase of its
+/// uppercase, repeated until the text no longer changes.
+///
+/// The result is stable, so folding folded text changes nothing, and a character and each
+/// of its lowercase and uppercase forms fold to the same text; the unit tests check both
+/// over every Unicode scalar value. A single pass is not enough: the capital sharp s `ẞ`
+/// is its own uppercase and folds to `ß` in one pass, whose uppercase `SS` folds to `ss`.
+///
+/// `str::to_lowercase` is not used because it lowercases a capital sigma by its position in
+/// the word, which would fold the same letter differently in a query and in a text.
+fn fold_case(text: &str) -> String {
+    let pass = |text: &str| -> String {
+        text.chars()
+            .flat_map(char::to_uppercase)
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let mut folded = pass(text);
+    loop {
+        let next = pass(&folded);
+        if next == folded {
+            return folded;
+        }
+        folded = next;
+    }
+}
+
 /// `tk find`: the tasks of the resolved scope whose title, body or note text contains
 /// `query`, ignoring case; open tasks only unless `all`.
 ///
-/// The comparison is a plain substring test on lowercased text, so `%`, `_` and `\` in
+/// The comparison is a plain substring test on case-folded text, so `%`, `_` and `\` in
 /// the query match only themselves.
 pub fn find(env: &Env, request: Request<'_>, query: &str, all: bool) -> Result<TaskList, Error> {
-    let needle = query.to_lowercase();
-    let matches = |text: &str| text.to_lowercase().contains(&needle);
+    let needle = fold_case(query);
+    let matches = |text: &str| fold_case(text).contains(&needle);
     open_store(env)?.read(|tx| {
         let scope = scope::resolve(tx, env, request)?;
         let covered = covered(tx, &scope)?;
@@ -547,8 +583,47 @@ pub fn find(env: &Env, request: Request<'_>, query: &str, all: bool) -> Result<T
 
 #[cfg(test)]
 mod tests {
-    use super::tag_change;
+    use super::{fold_case, tag_change};
     use crate::error::Error;
+
+    #[test]
+    fn case_folding_does_not_depend_on_the_position_in_a_word() {
+        // Calibration: plain ASCII folds to lowercase.
+        assert_eq!(fold_case("Token"), "token");
+        assert_eq!(fold_case("ΟΔΟΣ"), "οδοσ");
+        for sigma in ["Σ", "σ", "ς"] {
+            assert_eq!(fold_case(sigma), "σ", "{sigma}");
+        }
+        assert_eq!(fold_case("Straße"), fold_case("STRASSE"));
+        assert_eq!(fold_case("\u{212a}"), "k");
+        // The capital sharp s folds like its lowercase and like SS.
+        for sharp_s in ["ẞ", "ß", "SS", "ss"] {
+            assert_eq!(fold_case(sharp_s), "ss", "{sharp_s}");
+        }
+        assert_eq!(fold_case("GROẞ"), fold_case("groß"));
+        assert_eq!(fold_case("STRAẞE"), fold_case("straße"));
+    }
+
+    #[test]
+    fn every_character_folds_like_its_case_variants_and_folding_is_stable() {
+        let mut checked = 0_u32;
+        for c in (0..=0x0010_ffff_u32).filter_map(char::from_u32) {
+            let own = c.to_string();
+            let folded = fold_case(&own);
+            assert_eq!(fold_case(&folded), folded, "{c:?} U+{:04X}", u32::from(c));
+            for variant in [c.to_lowercase().to_string(), c.to_uppercase().to_string()] {
+                assert_eq!(
+                    fold_case(&variant),
+                    folded,
+                    "{c:?} U+{:04X} and {variant:?}",
+                    u32::from(c)
+                );
+            }
+            checked += 1;
+        }
+        // Calibration: every Unicode scalar value was visited.
+        assert_eq!(checked, 0x0011_0000 - 0x800);
+    }
 
     #[test]
     fn tag_changes_add_by_default_and_remove_with_a_dash() {
