@@ -17,6 +17,7 @@ use crate::command::transition::TransitionData;
 use crate::command::{FeatureView, ProjectView, TaskView};
 use crate::env::Env;
 use crate::error::Error;
+use crate::guide::Document;
 use crate::model::Status;
 
 /// How results and errors are written.
@@ -267,6 +268,11 @@ pub fn brief_text(brief: &Brief) -> String {
 /// The human form of `tk export`: the document itself.
 pub fn export_text(export: &Export) -> String {
     export.text().to_owned()
+}
+
+/// The human form of `tk guide` and `tk completions`: the document itself.
+pub fn document_text(document: &Document) -> String {
+    document.text.clone()
 }
 
 /// The human form of `tk import`: the number of created tasks and their ids.

@@ -171,6 +171,13 @@ pub enum Command {
         #[command(subcommand)]
         command: FeatureCommand,
     },
+    /// Print the usage guide: variables, scope, every command, output, errors.
+    Guide,
+    /// Print the completion script for a shell.
+    Completions {
+        /// The shell.
+        shell: clap_complete_command::Shell,
+    },
 }
 
 /// The commands that summarize, export or import tasks.

@@ -28,6 +28,24 @@ pub struct Env {
 
 impl Env {
     /// Builds an environment from variables, the current directory and whether stdout is a terminal.
+    ///
+    /// ```
+    /// use std::path::{Path, PathBuf};
+    /// use taskist::env::Env;
+    ///
+    /// let env = Env::new(
+    ///     [("HOME".into(), "/home/ada".into()), ("USER".into(), "ada".into())],
+    ///     PathBuf::from("/work"),
+    ///     false,
+    /// );
+    /// assert_eq!(
+    ///     env.database_path()?,
+    ///     Path::new("/home/ada/.local/share/taskist/taskist.db")
+    /// );
+    /// assert_eq!(env.actor(None), "ada");
+    /// assert_eq!(env.actor(Some("agent:docs")), "agent:docs");
+    /// # Ok::<(), taskist::error::Error>(())
+    /// ```
     pub fn new(
         vars: impl IntoIterator<Item = (OsString, OsString)>,
         current_dir: PathBuf,

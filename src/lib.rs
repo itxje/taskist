@@ -7,6 +7,7 @@ pub mod cli;
 pub mod command;
 pub mod env;
 pub mod error;
+pub mod guide;
 pub mod model;
 pub mod output;
 pub mod scope;
@@ -28,6 +29,29 @@ use crate::output::{Format, Paint};
 /// Runs one invocation of `tk` and returns the process exit code.
 ///
 /// `args` are the raw process arguments, program name first.
+///
+/// ```
+/// use std::ffi::OsString;
+/// use taskist::env::Env;
+///
+/// let dir = tempfile::tempdir()?;
+/// let env = Env::new(
+///     [(OsString::from("TASKIST_DB"), dir.path().join("tk.db").into_os_string())],
+///     dir.path().to_path_buf(),
+///     false,
+/// );
+/// let tk = |args: &[&str]| {
+///     let args: Vec<OsString> = ["tk"].iter().chain(args).map(OsString::from).collect();
+///     taskist::run(&args, &env)
+/// };
+/// assert_eq!(tk(&["project", "add", "web"]), 0);
+/// assert_eq!(tk(&["add", "Fix login", "-p", "web"]), 0);
+/// assert_eq!(tk(&["done", "1"]), 0);
+/// assert_eq!(tk(&["start", "1"]), 4); // invalid_transition
+/// assert_eq!(tk(&["show", "7"]), 3); // not_found
+/// assert_eq!(tk(&["frobnicate"]), 2); // usage
+/// # Ok::<(), std::io::Error>(())
+/// ```
 pub fn run(args: &[OsString], env: &Env) -> u8 {
     let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
@@ -140,6 +164,10 @@ fn run_command(format: Format, env: &Env, by: Option<&str>, command: Command) ->
         Command::Exchange(command) => run_exchange(format, env, by, command),
         Command::Project { command } => run_project(format, env, command),
         Command::Feature { command } => run_feature(format, env, command),
+        Command::Guide => output::emit(format, Ok(guide::guide()), output::document_text),
+        Command::Completions { shell } => {
+            output::emit(format, guide::completions(shell), output::document_text)
+        }
     }
 }
 
@@ -292,6 +320,17 @@ fn run_feature(format: Format, env: &Env, command: FeatureCommand) -> u8 {
 /// The error is JSON when `--json` appears among the raw arguments or
 /// `TASKIST_FORMAT` is `json`. An invalid `TASKIST_FORMAT` is reported instead,
 /// as text, since the requested format is unknown.
+///
+/// ```
+/// use std::ffi::{OsStr, OsString};
+/// use taskist::error::Error;
+///
+/// let args = [OsString::from("tk"), OsString::from("--json")];
+/// let error = Error::NotFound("no task 7".into());
+/// assert_eq!(taskist::fail(&args, None, &error), 3);
+/// let usage = Error::Usage("bad".into());
+/// assert_eq!(taskist::fail(&args[..1], Some(OsStr::new("yaml")), &usage), 2);
+/// ```
 pub fn fail(args: &[OsString], taskist_format: Option<&OsStr>, error: &Error) -> u8 {
     let json_flag = args.iter().skip(1).any(|arg| arg == "--json");
     match Format::detect(json_flag, taskist_format) {

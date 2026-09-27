@@ -208,6 +208,38 @@ fn refuse_archived(project: &Project) -> Result<(), Error> {
 
 /// `tk add`: creates a `todo` task in the resolved project, whose feature is created on
 /// first use.
+///
+/// ```
+/// use std::ffi::OsString;
+/// use taskist::command::{project, task};
+/// use taskist::env::Env;
+/// use taskist::model::Status;
+/// use taskist::scope::Request;
+///
+/// let dir = tempfile::tempdir()?;
+/// let env = Env::new(
+///     [
+///         (OsString::from("TASKIST_DB"), dir.path().join("tk.db").into_os_string()),
+///         (OsString::from("TASKIST_PROJECT"), OsString::from("web")),
+///     ],
+///     dir.path().to_path_buf(),
+///     false,
+/// );
+/// project::add(&env, "web", None, None)?;
+/// let tags = ["bug".to_owned()];
+/// let input = task::NewTaskInput {
+///     title: "Fix login",
+///     feature: Some("auth"),
+///     priority: Some(1),
+///     tags: &tags,
+///     body: None,
+/// };
+/// let added = task::add(&env, Request::default(), input, Some("ada"))?;
+/// assert_eq!(added.task.status, Status::Todo);
+/// assert_eq!(added.task.feature.as_deref(), Some("auth"));
+/// assert_eq!(added.task.created_by, "ada");
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 pub fn add(
     env: &Env,
     request: Request<'_>,
