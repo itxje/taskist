@@ -110,11 +110,26 @@ impl Sandbox {
         vars: impl IntoIterator<Item = (OsString, OsString)>,
     ) -> Command {
         let mut cmd = std::process::Command::new(program);
-        cmd.env_clear().envs(vars).current_dir(self.work());
+        cmd.env_clear()
+            .envs(vars)
+            .envs(coverage_vars())
+            .current_dir(self.work());
         let mut cmd = Command::from_std(cmd);
         cmd.write_stdin("");
         cmd
     }
+}
+
+/// The coverage variables of the test process that every child gets unchanged.
+///
+/// `LLVM_PROFILE_FILE`, when set, lets an instrumented `tk` write its profile where the
+/// coverage run collects it instead of into the working directory. `tk` itself never reads
+/// it, so passing it on does not let the caller's environment reach the tool.
+pub fn coverage_vars() -> Vec<(OsString, OsString)> {
+    std::env::var_os("LLVM_PROFILE_FILE")
+        .map(|value| ("LLVM_PROFILE_FILE".into(), value))
+        .into_iter()
+        .collect()
 }
 
 fn tk_path() -> &'static Path {
