@@ -16,8 +16,8 @@ would make the binary depend on whatever version the host provides.
 
 Use `rusqlite` with the `bundled` feature. `libsqlite3-sys` compiles the SQLite amalgamation
 from C source during the build and links it statically, so every build embeds the same SQLite
-version. The `rusqlite` entry in `Cargo.toml` carries a `# JUSTIFICATION:` comment that points
-here.
+version. The `rusqlite` entry in `Cargo.toml`, added together with the SQLite store, carries a
+`# JUSTIFICATION:` comment that points here.
 
 ## Consequences
 

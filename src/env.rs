@@ -112,14 +112,14 @@ mod tests {
         let env = env(&[
             ("TASKIST_DB", "rel/my.db"),
             ("XDG_DATA_HOME", "/xdg"),
-            ("HOME", "/home/u"),
+            ("HOME", "/users/u"),
         ]);
         assert_eq!(env.database_path().unwrap(), PathBuf::from("rel/my.db"));
     }
 
     #[test]
     fn absolute_xdg_data_home_comes_next() {
-        let env = env(&[("XDG_DATA_HOME", "/xdg"), ("HOME", "/home/u")]);
+        let env = env(&[("XDG_DATA_HOME", "/xdg"), ("HOME", "/users/u")]);
         assert_eq!(
             env.database_path().unwrap(),
             PathBuf::from("/xdg/taskist/taskist.db")
@@ -128,19 +128,19 @@ mod tests {
 
     #[test]
     fn relative_xdg_data_home_is_ignored() {
-        let env = env(&[("XDG_DATA_HOME", "xdg"), ("HOME", "/home/u")]);
+        let env = env(&[("XDG_DATA_HOME", "xdg"), ("HOME", "/users/u")]);
         assert_eq!(
             env.database_path().unwrap(),
-            PathBuf::from("/home/u/.local/share/taskist/taskist.db")
+            PathBuf::from("/users/u/.local/share/taskist/taskist.db")
         );
     }
 
     #[test]
     fn home_alone_is_enough() {
-        let env = env(&[("HOME", "/home/u")]);
+        let env = env(&[("HOME", "/users/u")]);
         assert_eq!(
             env.database_path().unwrap(),
-            PathBuf::from("/home/u/.local/share/taskist/taskist.db")
+            PathBuf::from("/users/u/.local/share/taskist/taskist.db")
         );
     }
 
@@ -149,11 +149,11 @@ mod tests {
         let env = env(&[
             ("TASKIST_DB", ""),
             ("XDG_DATA_HOME", ""),
-            ("HOME", "/home/u"),
+            ("HOME", "/users/u"),
         ]);
         assert_eq!(
             env.database_path().unwrap(),
-            PathBuf::from("/home/u/.local/share/taskist/taskist.db")
+            PathBuf::from("/users/u/.local/share/taskist/taskist.db")
         );
     }
 

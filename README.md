@@ -9,8 +9,9 @@ contract and the database location rules.
 
 ## Build
 
-Requires the Rust toolchain pinned in `rust-toolchain.toml` and a C compiler (SQLite is
-compiled from source; see `docs/decisions/2026-09-27-bundled-sqlite.md`).
+Requires the Rust toolchain pinned in `rust-toolchain.toml`. Once the SQLite store lands,
+SQLite is compiled from source and the build also needs a C compiler; see
+`docs/decisions/2026-09-27-bundled-sqlite.md`.
 
 ```bash
 cargo build --release

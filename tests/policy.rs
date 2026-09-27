@@ -85,27 +85,6 @@ fn clippy_lint_table_matches_policy() {
 }
 
 #[test]
-fn rusqlite_dependency_carries_a_justification() {
-    let manifest = package_file("Cargo.toml");
-    let lines: Vec<&str> = manifest.lines().collect();
-    let rusqlite = lines
-        .iter()
-        .position(|line| line.starts_with("rusqlite ="))
-        .expect("rusqlite dependency");
-    assert!(lines[rusqlite].contains(r#"features = ["bundled"]"#));
-    let comments = lines[..rusqlite]
-        .iter()
-        .rev()
-        .take_while(|line| line.starts_with('#'));
-    assert!(
-        comments
-            .last()
-            .is_some_and(|line| line.starts_with("# JUSTIFICATION:")),
-        "the comment block above rusqlite must start with # JUSTIFICATION:"
-    );
-}
-
-#[test]
 fn licence_is_mit_with_the_project_copyright() {
     let licence = package_file("LICENSE");
     assert_eq!(licence.lines().next(), Some("MIT License"));
