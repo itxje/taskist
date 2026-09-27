@@ -4,15 +4,18 @@ use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::io::Write;
 
+use anstyle::{AnsiColor, Style};
 use serde::Serialize;
 
 use crate::command::feature::{FeatureList, FeatureMove};
 use crate::command::project::{
     ProjectArchive, ProjectData, ProjectList, ProjectRemoval, ProjectShow,
 };
-use crate::command::{FeatureView, ProjectView, TaskList, TaskView};
+use crate::command::task::{NextTask, TaskData, TaskList, TaskShow};
+use crate::command::{FeatureView, ProjectView, TaskView};
 use crate::env::Env;
 use crate::error::Error;
+use crate::model::Status;
 
 /// How results and errors are written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,9 +93,58 @@ fn encode_line(value: &impl Serialize) -> Result<String, Error> {
     Ok(line)
 }
 
+/// Styles human text: the status word and headings, and only when colour is enabled.
+///
+/// Only the styles added here are affected; stored text is always written as stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Paint {
+    colour: bool,
+}
+
+/// The width of the longest status word, to which task lines pad the status column.
+const STATUS_WIDTH: usize = 7;
+
+impl Paint {
+    /// A painter that styles when `colour` is true and leaves text plain otherwise.
+    pub const fn new(colour: bool) -> Self {
+        Self { colour }
+    }
+
+    fn styled(self, style: Style, text: &str) -> String {
+        if self.colour {
+            format!("{style}{text}{style:#}")
+        } else {
+            text.to_owned()
+        }
+    }
+
+    /// A heading: a project name, a feature group, a task title line.
+    fn heading(self, text: &str) -> String {
+        self.styled(Style::new().bold(), text)
+    }
+
+    /// The status word.
+    fn status(self, status: Status) -> String {
+        let colour = match status {
+            Status::Todo => AnsiColor::Cyan,
+            Status::Doing => AnsiColor::Yellow,
+            Status::Blocked => AnsiColor::Red,
+            Status::Done => AnsiColor::Green,
+            Status::Dropped => AnsiColor::BrightBlack,
+        };
+        self.styled(colour.on_default(), status.as_str())
+    }
+
+    /// The status word padded to the width of the status column.
+    fn status_column(self, status: Status) -> String {
+        let padding = STATUS_WIDTH.saturating_sub(status.as_str().len());
+        format!("{}{}", self.status(status), " ".repeat(padding))
+    }
+}
+
 /// Writes plain text to stdout, as for `--help` and `--version`, and returns exit code 0.
 pub fn emit_text(text: &str) -> u8 {
-    match write_all(std::io::stdout().lock(), text) {
+    match write_stdout(text) {
         Ok(()) => 0,
         Err(err) => emit_failure(Format::Text, &err),
     }
@@ -106,17 +158,28 @@ pub fn emit_success<T: Serialize>(format: Format, data: &T, human: &str) -> u8 {
         Format::Text => Ok(human.to_owned()),
         Format::Json => render_success(data),
     };
-    match text.and_then(|text| write_all(std::io::stdout().lock(), &text)) {
+    match text.and_then(|text| write_stdout(&text)) {
         Ok(()) => 0,
         Err(err) => emit_failure(format, &err),
     }
 }
 
 /// Writes a command result: the success through [`emit_success`], with `human` rendering
-/// its text form, or the error through [`emit_failure`]; returns the exit code.
-pub fn emit<T: Serialize>(format: Format, result: Result<T, Error>, human: fn(&T) -> String) -> u8 {
+/// its text form when the format is text, or the error through [`emit_failure`]; returns
+/// the exit code.
+pub fn emit<T: Serialize>(
+    format: Format,
+    result: Result<T, Error>,
+    human: impl FnOnce(&T) -> String,
+) -> u8 {
     match result {
-        Ok(data) => emit_success(format, &data, &human(&data)),
+        Ok(data) => {
+            let text = match format {
+                Format::Text => human(&data),
+                Format::Json => String::new(),
+            };
+            emit_success(format, &data, &text)
+        }
         Err(err) => emit_failure(format, &err),
     }
 }
@@ -134,18 +197,32 @@ fn project_line(project: &ProjectView) -> String {
     format!("{}  ({} open){archived}\n", project.name, project.open)
 }
 
-fn task_line(task: &TaskView) -> String {
+/// The task id, the priority `P0`..`P3`, the padded status and the title, without
+/// indentation or line end.
+fn task_line(task: &TaskView, paint: Paint) -> String {
     format!(
-        "  #{}  P{}  {:<7}  {}\n",
+        "#{}  P{}  {}  {}",
         task.id,
         task.priority,
-        task.status.as_str(),
+        paint.status_column(task.status),
         task.title
     )
 }
 
-/// The human form of `tk ls`: the open tasks under a `name  (N open)` heading per project.
-pub fn task_list_text(list: &TaskList) -> String {
+/// `project` or `project/feature`.
+fn location(task: &TaskView) -> String {
+    task.feature.as_ref().map_or_else(
+        || task.project.clone(),
+        |feature| format!("{}/{feature}", task.project),
+    )
+}
+
+/// The human form of `tk ls` and `tk find`, grouped by project and feature.
+///
+/// A `name  (N open)` heading per project, a heading per feature with `-` for tasks
+/// without one, and one line per task; a blocked task ends with its latest reason in
+/// parentheses.
+pub fn task_list_text(list: &TaskList, paint: Paint) -> String {
     let mut projects: Vec<&str> = list
         .tasks
         .iter()
@@ -157,21 +234,102 @@ pub fn task_list_text(list: &TaskList) -> String {
     projects.sort_unstable();
     projects.dedup();
     if projects.is_empty() {
-        return "no open tasks\n".to_owned();
+        return "no tasks\n".to_owned();
     }
     let mut text = String::new();
     for project in projects {
-        let tasks: Vec<&TaskView> = list
-            .tasks
-            .iter()
-            .filter(|task| task.project == project)
-            .collect();
-        let _ = writeln!(text, "{project}  ({} open)", tasks.len());
-        for task in tasks {
-            text.push_str(&task_line(task));
+        let open = list.open.get(project).copied().unwrap_or(0);
+        let _ = writeln!(text, "{}  ({open} open)", paint.heading(project));
+        let mut group: Option<Option<&str>> = None;
+        for task in list.tasks.iter().filter(|task| task.project == project) {
+            let feature = task.feature.as_deref();
+            if group != Some(feature) {
+                let _ = writeln!(text, "  {}", paint.heading(feature.unwrap_or("-")));
+                group = Some(feature);
+            }
+            let _ = write!(text, "    {}", task_line(task, paint));
+            if let Some(reason) = list.reasons.get(&task.id) {
+                let _ = write!(text, "  ({reason})");
+            }
+            text.push('\n');
         }
     }
     text
+}
+
+/// The human form of `tk show`: a heading, one `name: value` line per field, the body
+/// after a blank line, and the notes oldest first.
+pub fn task_show_text(show: &TaskShow, paint: Paint) -> String {
+    let task = &show.task;
+    let mut text = paint.heading(&format!("#{}  {}", task.id, task.title));
+    let tags = if task.tags.is_empty() {
+        "-".to_owned()
+    } else {
+        task.tags.join(", ")
+    };
+    let _ = write!(
+        text,
+        "\nproject:  {}\nfeature:  {}\nstatus:   {}\npriority: P{}\ntags:     {tags}\n\
+         created:  {} by {}\nupdated:  {}\n",
+        task.project,
+        task.feature.as_deref().unwrap_or("-"),
+        paint.status(task.status),
+        task.priority,
+        task.created_at,
+        task.created_by,
+        task.updated_at,
+    );
+    if let Some(closed_at) = &task.closed_at {
+        let _ = writeln!(text, "closed:   {closed_at}");
+    }
+    if !task.body.is_empty() {
+        let _ = write!(text, "\n{}", task.body);
+        if !task.body.ends_with('\n') {
+            text.push('\n');
+        }
+    }
+    if !show.notes.is_empty() {
+        let _ = writeln!(text, "\n{}", paint.heading("notes:"));
+        for note in &show.notes {
+            let _ = writeln!(
+                text,
+                "  {}  {}  {}: {}",
+                note.created_at,
+                note.kind.as_str(),
+                note.author,
+                note.text
+            );
+        }
+    }
+    text
+}
+
+/// The human form of `tk add`.
+pub fn task_added_text(data: &TaskData) -> String {
+    format!(
+        "added #{} to {}: {}\n",
+        data.task.id,
+        location(&data.task),
+        data.task.title
+    )
+}
+
+/// The human form of `tk edit`.
+pub fn task_updated_text(data: &TaskData) -> String {
+    format!(
+        "updated #{} in {}: {}\n",
+        data.task.id,
+        location(&data.task),
+        data.task.title
+    )
+}
+
+/// The human form of `tk next`: the task line with its location, or `no open task`.
+pub fn next_task_text(next: &NextTask, paint: Paint) -> String {
+    next.task.as_ref().map_or_else(
+        || "no open task\n".to_owned(),
+        |task| format!("{}  ({})\n", task_line(task, paint), location(task)),
+    )
 }
 
 /// The human form of `project ls`: one `name  (N open)` line per project, or `no projects`.
@@ -292,6 +450,16 @@ pub fn emit_failure(format: Format, error: &Error) -> u8 {
     let _ =
         render_failure(format, error).and_then(|text| write_all(std::io::stderr().lock(), &text));
     error.exit_code()
+}
+
+/// Writes to stdout through `anstream`, which passes the text through as it is: the
+/// styles in it are those [`Paint`] added when colour is enabled, and escape sequences in
+/// stored text are printed as stored.
+fn write_stdout(text: &str) -> Result<(), Error> {
+    write_all(
+        anstream::AutoStream::new(std::io::stdout().lock(), anstream::ColorChoice::Always),
+        text,
+    )
 }
 
 fn write_all(mut stream: impl Write, text: &str) -> Result<(), Error> {
@@ -415,5 +583,131 @@ mod tests {
         assert_eq!(plural(1, "task"), "1 task");
         assert_eq!(plural(0, "task"), "0 tasks");
         assert_eq!(plural(2, "task"), "2 tasks");
+    }
+
+    fn task(
+        id: i64,
+        feature: Option<&str>,
+        status: crate::model::Status,
+    ) -> crate::command::TaskView {
+        crate::command::TaskView {
+            id,
+            project: "web".into(),
+            feature: feature.map(str::to_owned),
+            title: format!("task {id}"),
+            body: String::new(),
+            status,
+            priority: 1,
+            tags: vec![],
+            created_at: "2026-09-27T12:00:00.000Z".into(),
+            updated_at: "2026-09-27T12:00:00.000Z".into(),
+            closed_at: None,
+            created_by: "me".into(),
+        }
+    }
+
+    #[test]
+    fn paint_styles_only_when_colour_is_enabled_and_pads_outside_the_style() {
+        use crate::model::Status;
+        let plain = super::Paint::new(false);
+        let colour = super::Paint::new(true);
+        assert_eq!(plain.status_column(Status::Todo), "todo   ");
+        assert_eq!(plain.status_column(Status::Blocked), "blocked");
+        assert_eq!(plain.heading("web"), "web");
+        let styled = colour.status_column(Status::Doing);
+        assert!(styled.starts_with("\x1b["), "{styled:?}");
+        assert!(styled.ends_with("doing\x1b[0m  "), "{styled:?}");
+        assert_eq!(colour.heading("web"), "\x1b[1mweb\x1b[0m");
+        for status in Status::ALL {
+            assert!(colour.status(status).contains(status.as_str()));
+            assert_ne!(colour.status(status), plain.status(status));
+        }
+    }
+
+    #[test]
+    fn task_list_text_groups_features_and_shows_reasons() {
+        use crate::command::task::TaskList;
+        use crate::model::Status;
+        use crate::scope::{Scope, Source};
+        let list = TaskList {
+            scope: Scope {
+                project: None,
+                source: Source::None,
+            },
+            tasks: vec![
+                task(3, Some("api"), Status::Blocked),
+                task(1, Some("auth"), Status::Todo),
+                task(2, None, Status::Doing),
+            ],
+            open: std::iter::once(("web".to_owned(), 5)).collect(),
+            reasons: std::iter::once((3, "waiting".to_owned())).collect(),
+        };
+        assert_eq!(
+            super::task_list_text(&list, super::Paint::new(false)),
+            "web  (5 open)\n  api\n    #3  P1  blocked  task 3  (waiting)\n  auth\n    \
+             #1  P1  todo     task 1\n  -\n    #2  P1  doing    task 2\n"
+        );
+        let empty = TaskList {
+            tasks: vec![],
+            ..list
+        };
+        assert_eq!(
+            super::task_list_text(&empty, super::Paint::new(false)),
+            "no tasks\n"
+        );
+    }
+
+    #[test]
+    fn task_texts_of_show_add_edit_and_next() {
+        use crate::command::task::{NextTask, NoteView, TaskData, TaskShow};
+        use crate::model::{NoteKind, Status};
+        use crate::scope::{Scope, Source};
+        let mut closed = task(4, Some("auth"), Status::Done);
+        closed.closed_at = Some("2026-09-28T00:00:00.000Z".into());
+        closed.body = "ends with a newline\n".into();
+        closed.tags = vec!["a".into(), "b".into()];
+        let show = TaskShow {
+            task: closed.clone(),
+            notes: vec![NoteView {
+                id: 1,
+                kind: NoteKind::Done,
+                text: "shipped".into(),
+                author: "me".into(),
+                created_at: "2026-09-28T00:00:00.000Z".into(),
+            }],
+        };
+        assert_eq!(
+            super::task_show_text(&show, super::Paint::new(false)),
+            "#4  task 4\nproject:  web\nfeature:  auth\nstatus:   done\npriority: P1\n\
+             tags:     a, b\ncreated:  2026-09-27T12:00:00.000Z by me\n\
+             updated:  2026-09-27T12:00:00.000Z\nclosed:   2026-09-28T00:00:00.000Z\n\
+             \nends with a newline\n\nnotes:\n  2026-09-28T00:00:00.000Z  done  me: shipped\n"
+        );
+        let data = TaskData { task: closed };
+        assert_eq!(
+            super::task_added_text(&data),
+            "added #4 to web/auth: task 4\n"
+        );
+        assert_eq!(
+            super::task_updated_text(&data),
+            "updated #4 in web/auth: task 4\n"
+        );
+        let scope = Scope {
+            project: None,
+            source: Source::None,
+        };
+        let next = NextTask {
+            scope: scope.clone(),
+            task: Some(task(5, None, Status::Todo)),
+        };
+        assert_eq!(
+            super::next_task_text(&next, super::Paint::new(false)),
+            "#5  P1  todo     task 5  (web)\n"
+        );
+        let none = NextTask { scope, task: None };
+        assert_eq!(
+            super::next_task_text(&none, super::Paint::new(false)),
+            "no open task\n"
+        );
     }
 }

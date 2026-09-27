@@ -18,7 +18,8 @@ name = "tk"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1.0.104"
+anstream = "1.0.0"
+anstyle = "1.0.14"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 # JUSTIFICATION: C dependency, the SQLite amalgamation built and linked statically; see docs/decisions/2026-09-27-bundled-sqlite.md
 rusqlite = { version = "0.40.2", features = ["bundled"] }

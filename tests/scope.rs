@@ -237,12 +237,15 @@ fn ls_lists_the_open_tasks_of_the_scope() {
         .iter()
         .map(|task| &task["id"])
         .collect();
-    assert_eq!(ids, [&json!(open), &json!(other)]);
+    // Display order: projects by name.
+    assert_eq!(ids, [&json!(other), &json!(open)]);
 
     sandbox
         .tk()
         .args(["ls", "-p", "web"])
         .assert()
         .code(0)
-        .stdout(format!("web  (1 open)\n  #{open}  P2  doing    seeded\n"));
+        .stdout(format!(
+            "web  (1 open)\n  auth\n    #{open}  P2  doing    seeded\n"
+        ));
 }

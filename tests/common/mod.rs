@@ -15,7 +15,7 @@ use std::process::Output;
 
 use assert_cmd::Command;
 use serde_json::Value;
-use taskist::model::Status;
+use taskist::model::{NoteKind, Status};
 use taskist::store::{NewTask, Store};
 use tempfile::TempDir;
 
@@ -166,6 +166,30 @@ impl Sandbox {
                 Ok(task.id)
             })
             .expect("seed task")
+    }
+}
+
+impl Sandbox {
+    /// Moves a task to `status` through the library, as no command changes statuses yet.
+    pub fn set_status(&self, id: i64, status: Status) {
+        self.store()
+            .write(|tx| tx.set_status(id, status))
+            .expect("set status");
+    }
+
+    /// Appends a note to a task through the library.
+    pub fn note(&self, id: i64, kind: NoteKind, text: &str) {
+        self.store()
+            .write(|tx| tx.insert_note(id, kind, text, "seed").map(drop))
+            .expect("add note");
+    }
+
+    /// Runs one SQL statement on the sandbox database, to set values no command sets.
+    pub fn sql(&self, statement: &str, params: impl rusqlite::Params) {
+        rusqlite::Connection::open(self.db())
+            .expect("open database")
+            .execute(statement, params)
+            .expect("run statement");
     }
 }
 

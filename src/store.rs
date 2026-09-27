@@ -13,7 +13,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::error::Error;
 
-pub use query::NewTask;
+pub use query::{NewTask, TaskUpdate};
 
 /// How long a statement waits for a lock held by another process.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -763,5 +763,58 @@ mod tests {
         for table in ["project", "feature", "task", "task_tag", "note"] {
             assert_eq!(count(table), 0, "{table}");
         }
+    }
+
+    #[test]
+    fn a_task_update_changes_its_fields_and_lookups_by_id_find_rows() {
+        let (_dir, path) = temp();
+        let mut store = Store::open(&path).unwrap();
+        let (web, api, feature, id) = store
+            .write(|tx| {
+                let web = tx.insert_project("web", None, "")?;
+                let api = tx.insert_project("api", None, "")?;
+                let feature = tx.insert_feature(api.id, "db")?;
+                let id = tx.insert_task(&task(web.id, "before"))?.id;
+                Ok((web, api, feature, id))
+            })
+            .unwrap();
+        assert_eq!(
+            store.read(|tx| tx.project_by_id(web.id)).unwrap(),
+            Some(web)
+        );
+        assert_eq!(
+            store.read(|tx| tx.feature_by_id(feature.id)).unwrap(),
+            Some(feature.clone())
+        );
+        assert!(store.read(|tx| tx.project_by_id(999)).unwrap().is_none());
+        assert!(store.read(|tx| tx.feature_by_id(999)).unwrap().is_none());
+
+        let update = super::TaskUpdate {
+            project_id: api.id,
+            feature_id: Some(feature.id),
+            title: "after",
+            body: "text",
+            priority: 0,
+        };
+        let updated = store
+            .write(|tx| {
+                tx.update_task(id, &update)?;
+                tx.task(id)
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (
+                updated.project_id,
+                updated.feature_id,
+                updated.title.as_str(),
+                updated.body.as_str(),
+                updated.priority
+            ),
+            (api.id, Some(feature.id), "after", "text", 0)
+        );
+        assert!(updated.updated_at >= updated.created_at);
+        let missing = store.write(|tx| tx.update_task(999, &update));
+        assert!(matches!(missing, Err(Error::NotFound(_))), "{missing:?}");
     }
 }

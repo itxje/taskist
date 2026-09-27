@@ -263,8 +263,9 @@ impl Drop for Holder {
     }
 }
 
-/// `tk` started through the helper after its working directory was removed fails
-/// with the internal current-directory error, so it runs in that directory.
+/// `tk ls`, which reads the current directory to resolve its scope, started through the
+/// helper after its working directory was removed fails with the internal
+/// current-directory error, so it runs in that directory.
 ///
 /// A holder process keeps the removed directory as its own working directory, and
 /// `work()` becomes a link to `/proc/<holder>/cwd`, through which the helper can still
@@ -278,7 +279,7 @@ fn tk_runs_in_the_work_directory() {
         ("tk_without_db", Sandbox::tk_without_db),
     ] {
         make(&sandbox)
-            .arg("--version")
+            .arg("ls")
             .timeout(PROBE_TIMEOUT)
             .assert()
             .code(0);
@@ -295,7 +296,7 @@ fn tk_runs_in_the_work_directory() {
         std::os::unix::fs::symlink(format!("/proc/{}/cwd", holder.0.id()), sandbox.work())
             .expect("link work directory");
         let output = make(&sandbox)
-            .arg("--version")
+            .arg("ls")
             .timeout(PROBE_TIMEOUT)
             .output()
             .expect("run tk");

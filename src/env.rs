@@ -6,6 +6,15 @@ use std::path::{Path, PathBuf};
 
 use crate::error::Error;
 
+/// Where the current directory comes from.
+#[derive(Debug, Clone)]
+enum CurrentDir {
+    /// A directory fixed when the environment was built.
+    Given(PathBuf),
+    /// Read from the process each time it is needed.
+    Read(fn() -> std::io::Result<PathBuf>),
+}
+
 /// Environment variables, current directory and terminal state of one invocation.
 ///
 /// The library reads these values only through `Env`, so tests build one by hand
@@ -13,7 +22,7 @@ use crate::error::Error;
 #[derive(Debug, Clone)]
 pub struct Env {
     vars: BTreeMap<OsString, OsString>,
-    current_dir: PathBuf,
+    current_dir: CurrentDir,
     stdout_is_terminal: bool,
 }
 
@@ -26,7 +35,22 @@ impl Env {
     ) -> Self {
         Self {
             vars: vars.into_iter().collect(),
-            current_dir,
+            current_dir: CurrentDir::Given(current_dir),
+            stdout_is_terminal,
+        }
+    }
+
+    /// Builds an environment whose current directory is read with `read_current_dir` only
+    /// when a command needs it, so commands that do not can run in a directory that
+    /// cannot be read.
+    pub fn with_current_dir_reader(
+        vars: impl IntoIterator<Item = (OsString, OsString)>,
+        read_current_dir: fn() -> std::io::Result<PathBuf>,
+        stdout_is_terminal: bool,
+    ) -> Self {
+        Self {
+            vars: vars.into_iter().collect(),
+            current_dir: CurrentDir::Read(read_current_dir),
             stdout_is_terminal,
         }
     }
@@ -36,14 +60,38 @@ impl Env {
         self.vars.get(OsStr::new(name)).map(OsString::as_os_str)
     }
 
-    /// The current directory at startup.
-    pub fn current_dir(&self) -> &Path {
-        &self.current_dir
+    /// The current directory; an `internal` error when it cannot be read.
+    pub fn current_dir(&self) -> Result<PathBuf, Error> {
+        match &self.current_dir {
+            CurrentDir::Given(dir) => Ok(dir.clone()),
+            CurrentDir::Read(read) => read().map_err(|err| {
+                Error::Internal(format!("cannot read the current directory: {err}"))
+            }),
+        }
+    }
+
+    /// `path` itself when it is absolute, otherwise `path` below the current directory.
+    pub fn absolute(&self, path: &Path) -> Result<PathBuf, Error> {
+        if path.is_absolute() {
+            Ok(path.to_path_buf())
+        } else {
+            Ok(self.current_dir()?.join(path))
+        }
     }
 
     /// Whether stdout is a terminal.
     pub const fn stdout_is_terminal(&self) -> bool {
         self.stdout_is_terminal
+    }
+
+    /// Whether human output is coloured: never when `NO_COLOR` is set, always when
+    /// `CLICOLOR_FORCE` is set, otherwise when stdout is a terminal. Empty values count
+    /// as unset.
+    pub fn colour(&self) -> bool {
+        if self.non_empty("NO_COLOR").is_some() {
+            return false;
+        }
+        self.non_empty("CLICOLOR_FORCE").is_some() || self.stdout_is_terminal
     }
 
     /// The value of a variable, if set to a non-empty value.
@@ -117,8 +165,54 @@ mod tests {
         let env = Env::new([("A".into(), "1".into())], PathBuf::from("/w"), true);
         assert_eq!(env.var("A"), Some("1".as_ref()));
         assert_eq!(env.var("B"), None);
-        assert_eq!(env.current_dir(), PathBuf::from("/w"));
+        assert_eq!(env.current_dir().unwrap(), PathBuf::from("/w"));
         assert!(env.stdout_is_terminal());
+    }
+
+    #[test]
+    fn the_current_directory_is_read_only_when_asked_for() {
+        let env = Env::with_current_dir_reader(
+            [],
+            || Err(std::io::Error::from(std::io::ErrorKind::NotFound)),
+            false,
+        );
+        let err = env.current_dir().unwrap_err();
+        assert!(matches!(err, Error::Internal(_)), "{err:?}");
+        assert!(
+            err.to_string()
+                .starts_with("cannot read the current directory: "),
+            "{err}"
+        );
+        assert_eq!(
+            env.absolute(std::path::Path::new("/abs/db")).unwrap(),
+            PathBuf::from("/abs/db")
+        );
+        assert!(env.absolute(std::path::Path::new("rel")).is_err());
+        let env = Env::with_current_dir_reader([], || Ok(PathBuf::from("/read")), false);
+        assert_eq!(
+            env.absolute(std::path::Path::new("rel")).unwrap(),
+            PathBuf::from("/read/rel")
+        );
+    }
+
+    #[test]
+    fn colour_follows_no_color_then_clicolor_force_then_the_terminal() {
+        let with = |vars: &[(&str, &str)], terminal: bool| {
+            Env::new(
+                vars.iter()
+                    .map(|(name, value)| ((*name).into(), (*value).into())),
+                PathBuf::from("/"),
+                terminal,
+            )
+            .colour()
+        };
+        assert!(!with(&[], false));
+        assert!(with(&[], true));
+        assert!(with(&[("CLICOLOR_FORCE", "1")], false));
+        assert!(!with(&[("CLICOLOR_FORCE", "")], false));
+        assert!(!with(&[("NO_COLOR", "1")], true));
+        assert!(!with(&[("NO_COLOR", "1"), ("CLICOLOR_FORCE", "1")], true));
+        assert!(with(&[("NO_COLOR", ""), ("CLICOLOR_FORCE", "1")], false));
     }
 
     #[test]

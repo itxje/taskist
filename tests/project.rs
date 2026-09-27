@@ -368,8 +368,20 @@ fn rm_refuses_a_project_with_tasks_unless_forced() {
     let sandbox = Sandbox::new();
     sandbox.ok(&["project", "add", "web"]);
     sandbox.ok(&["project", "add", "empty"]);
-    sandbox.seed_task("web", Some("auth"), Status::Todo);
+    let tagged = sandbox.seed_task("web", Some("auth"), Status::Todo);
     sandbox.seed_task("web", None, Status::Done);
+    sandbox.ok(&["edit", &tagged.to_string(), "--tag", "ui"]);
+    sandbox.note(tagged, taskist::model::NoteKind::Note, "kept until removal");
+    let conn = rusqlite::Connection::open(sandbox.db()).expect("open");
+    // Control: the tables the forced removal must empty hold rows before it.
+    for table in ["task", "feature", "task_tag", "note"] {
+        let rows: i64 = conn
+            .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .expect("count");
+        assert!(rows > 0, "{table} is seeded");
+    }
 
     let message = err_message(
         &json_run(&sandbox, &["project", "rm", "web"]),
@@ -397,7 +409,6 @@ fn rm_refuses_a_project_with_tasks_unless_forced() {
         .map(|n| i64::try_from(n).expect("count"))
         .expect("read");
     assert_eq!(remaining, 1);
-    let conn = rusqlite::Connection::open(sandbox.db()).expect("open");
     for table in ["task", "feature", "task_tag", "note"] {
         let rows: i64 = conn
             .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {

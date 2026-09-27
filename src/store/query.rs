@@ -56,6 +56,21 @@ pub struct NewTask<'a> {
     pub created_by: &'a str,
 }
 
+/// The editable values of an existing task.
+#[derive(Debug, Clone, Copy)]
+pub struct TaskUpdate<'a> {
+    /// Owning project.
+    pub project_id: i64,
+    /// Feature, if any; it must belong to the project.
+    pub feature_id: Option<i64>,
+    /// Title, already normalized.
+    pub title: &'a str,
+    /// Free text.
+    pub body: &'a str,
+    /// 0 (most urgent) to 3.
+    pub priority: u8,
+}
+
 impl ToSql for Status {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         Ok(ToSqlOutput::from(self.as_str()))
@@ -190,6 +205,18 @@ impl Tx<'_> {
             .optional()?)
     }
 
+    /// The project with this id.
+    pub fn project_by_id(&self, id: i64) -> Result<Option<Project>, Error> {
+        Ok(self
+            .tx
+            .query_row(
+                concat!("SELECT ", project_columns!(), " FROM project WHERE id = ?1"),
+                [id],
+                project_row,
+            )
+            .optional()?)
+    }
+
     /// The project linked to this directory.
     pub fn project_by_path(&self, path: &str) -> Result<Option<Project>, Error> {
         Ok(self
@@ -297,6 +324,18 @@ impl Tx<'_> {
             .optional()?)
     }
 
+    /// The feature with this id.
+    pub fn feature_by_id(&self, id: i64) -> Result<Option<Feature>, Error> {
+        Ok(self
+            .tx
+            .query_row(
+                concat!("SELECT ", feature_columns!(), " FROM feature WHERE id = ?1"),
+                [id],
+                feature_row,
+            )
+            .optional()?)
+    }
+
     /// Renames a feature.
     pub fn rename_feature(&self, id: i64, name: &str) -> Result<(), Error> {
         let changed = self.tx.execute(
@@ -370,6 +409,27 @@ impl Tx<'_> {
         ))?;
         let rows = stmt.query_map([project_id], task_row)?;
         rows.map(|task| self.with_tags(task?)).collect()
+    }
+
+    /// Sets the project, feature, title, body and priority of a task and its update time.
+    pub fn update_task(&self, id: i64, update: &TaskUpdate<'_>) -> Result<(), Error> {
+        let changed = self.tx.execute(
+            concat!(
+                "UPDATE task SET project_id = ?2, feature_id = ?3, title = ?4, body = ?5, \
+                 priority = ?6, updated_at = ",
+                now!(),
+                " WHERE id = ?1"
+            ),
+            params![
+                id,
+                update.project_id,
+                update.feature_id,
+                update.title,
+                update.body,
+                update.priority
+            ],
+        )?;
+        expect_one(changed, "task", id)
     }
 
     /// Sets the status of a task and its update time; `closed_at` is set for `done` and

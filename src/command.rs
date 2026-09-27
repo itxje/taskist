@@ -3,21 +3,20 @@
 
 pub mod feature;
 pub mod project;
-
-use std::collections::HashMap;
+pub mod task;
 
 use serde::Serialize;
 
 use crate::env::Env;
 use crate::error::Error;
-use crate::model::{Project, Status, Task};
-use crate::scope::{self, Request, Scope};
+use crate::model::{Project, Status};
+use crate::scope::Scope;
 use crate::store::{Store, Tx};
 
 /// Opens the database at the location the environment resolves, relative paths from the
 /// captured current directory.
 fn open_store(env: &Env) -> Result<Store, Error> {
-    Store::open(&env.current_dir().join(env.database_path()?))
+    Store::open(&env.absolute(&env.database_path()?)?)
 }
 
 /// A project as the output shows it: `{name, path, description, archived, created_at, open}`.
@@ -77,15 +76,6 @@ pub struct TaskView {
     pub closed_at: Option<String>,
     /// Actor that created the task.
     pub created_by: String,
-}
-
-/// `tk ls` data: `{scope, tasks}`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct TaskList {
-    /// The resolved scope.
-    pub scope: Scope,
-    /// Open tasks, by priority, then age.
-    pub tasks: Vec<TaskView>,
 }
 
 /// The task counts of one project, per feature and status.
@@ -152,45 +142,4 @@ fn listed_projects(tx: &Tx<'_>, scope: &Scope) -> Result<Vec<Project>, Error> {
         .project
         .as_ref()
         .map_or_else(|| tx.projects(false), |project| Ok(vec![project.clone()]))
-}
-
-/// `tk ls`: the open tasks of the resolved scope, by priority, then age.
-pub fn list(env: &Env, request: Request<'_>) -> Result<TaskList, Error> {
-    open_store(env)?.read(|tx| {
-        let scope = scope::resolve(tx, env, request)?;
-        let mut tasks = Vec::new();
-        for project in listed_projects(tx, &scope)? {
-            let features: HashMap<i64, String> = tx
-                .features(project.id)?
-                .into_iter()
-                .map(|feature| (feature.id, feature.name))
-                .collect();
-            for task in tx.tasks(project.id)? {
-                if task.status.is_open() {
-                    tasks.push(task_view(task, &project.name, &features));
-                }
-            }
-        }
-        tasks.sort_by(|a, b| {
-            (a.priority, &a.created_at, a.id).cmp(&(b.priority, &b.created_at, b.id))
-        });
-        Ok(TaskList { scope, tasks })
-    })
-}
-
-fn task_view(task: Task, project: &str, features: &HashMap<i64, String>) -> TaskView {
-    TaskView {
-        id: task.id,
-        project: project.to_owned(),
-        feature: task.feature_id.and_then(|id| features.get(&id).cloned()),
-        title: task.title,
-        body: task.body,
-        status: task.status,
-        priority: task.priority,
-        tags: task.tags,
-        created_at: task.created_at,
-        updated_at: task.updated_at,
-        closed_at: task.closed_at,
-        created_by: task.created_by,
-    }
 }
