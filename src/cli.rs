@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 
+use crate::model::Status;
 use crate::scope::Request;
 
 /// Track unfinished and follow-up work across many projects.
@@ -15,7 +16,7 @@ pub struct Cli {
     pub json: bool,
 
     /// The actor recorded on created tasks and notes [default: `TASKIST_ACTOR`, `USER`, unknown].
-    #[arg(long, global = true, value_name = "ACTOR")]
+    #[arg(long, global = true, value_name = "ACTOR", allow_hyphen_values = true)]
     pub by: Option<String>,
 
     /// The command to run.
@@ -26,11 +27,131 @@ pub struct Cli {
 /// The commands `tk` understands.
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// List the open tasks of the resolved scope.
+    /// Create a task; its feature is created when it does not exist.
+    Add {
+        /// Single-line title.
+        #[arg(value_name = "TITLE")]
+        title: String,
+        /// Scope options.
+        #[command(flatten)]
+        scope: ProjectScope,
+        /// Feature name.
+        #[arg(
+            short = 'f',
+            long = "feature",
+            value_name = "NAME",
+            allow_hyphen_values = true
+        )]
+        feature: Option<String>,
+        /// Priority, 0 (most urgent) to 3 [default: 2].
+        #[arg(long = "pri", value_name = "N")]
+        priority: Option<u8>,
+        /// Tag; repeat for several.
+        #[arg(long = "tag", value_name = "TAG", allow_hyphen_values = true)]
+        tags: Vec<String>,
+        /// Body text, or '-' to read it from stdin.
+        #[arg(long, value_name = "TEXT", allow_hyphen_values = true)]
+        body: Option<String>,
+    },
+    /// List the open tasks of the resolved scope, grouped by project and feature.
     Ls {
         /// Scope options.
         #[command(flatten)]
         scope: ListScope,
+        /// Only tasks of this feature.
+        #[arg(
+            short = 'f',
+            long = "feature",
+            value_name = "NAME",
+            allow_hyphen_values = true
+        )]
+        feature: Option<String>,
+        /// Only tasks in these statuses, separated by commas.
+        #[arg(
+            long,
+            value_name = "STATUS",
+            value_delimiter = ',',
+            value_parser = parse_status,
+            allow_hyphen_values = true,
+            conflicts_with = "all"
+        )]
+        status: Vec<Status>,
+        /// Only tasks with this tag.
+        #[arg(long, value_name = "TAG", allow_hyphen_values = true)]
+        tag: Option<String>,
+        /// Include done and dropped tasks.
+        #[arg(long)]
+        all: bool,
+        /// Show at most this many tasks, in display order.
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+    },
+    /// Show a task with all its notes.
+    Show {
+        /// Task id.
+        id: i64,
+    },
+    /// Change a task; at least one option is required.
+    Edit {
+        /// Task id.
+        id: i64,
+        /// New title.
+        #[arg(long, value_name = "TITLE", allow_hyphen_values = true)]
+        title: Option<String>,
+        /// New body text, or '-' to read it from stdin.
+        #[arg(long, value_name = "TEXT", allow_hyphen_values = true)]
+        body: Option<String>,
+        /// New priority, 0 (most urgent) to 3.
+        #[arg(long = "pri", value_name = "N")]
+        priority: Option<u8>,
+        /// Move the task to this feature, created when it does not exist.
+        #[arg(
+            short = 'f',
+            long = "feature",
+            value_name = "NAME",
+            allow_hyphen_values = true,
+            conflicts_with = "no_feature"
+        )]
+        feature: Option<String>,
+        /// Remove the task from its feature.
+        #[arg(long)]
+        no_feature: bool,
+        /// '+TAG' or 'TAG' adds a tag, '-TAG' removes one; repeat for several.
+        #[arg(long = "tag", value_name = "[+|-]TAG", allow_hyphen_values = true)]
+        tags: Vec<String>,
+        /// Move the task to this project; its feature moves along by name.
+        #[arg(
+            short = 'p',
+            long = "project",
+            value_name = "NAME",
+            allow_hyphen_values = true
+        )]
+        project: Option<String>,
+    },
+    /// Show the open task to work on next: by priority, then doing before todo, then age.
+    Next {
+        /// Scope options.
+        #[command(flatten)]
+        scope: ListScope,
+        /// Only tasks of this feature.
+        #[arg(
+            short = 'f',
+            long = "feature",
+            value_name = "NAME",
+            allow_hyphen_values = true
+        )]
+        feature: Option<String>,
+    },
+    /// Find tasks whose title, body or notes contain a text, ignoring case.
+    Find {
+        /// The text to find.
+        query: String,
+        /// Scope options.
+        #[command(flatten)]
+        scope: ListScope,
+        /// Include done and dropped tasks.
+        #[arg(long)]
+        all: bool,
     },
     /// Manage projects.
     Project {
@@ -50,7 +171,12 @@ pub enum Command {
 #[derive(Debug, Args)]
 pub struct ProjectScope {
     /// The project [default: `TASKIST_PROJECT`, then the current directory].
-    #[arg(short = 'p', long = "project", value_name = "NAME")]
+    #[arg(
+        short = 'p',
+        long = "project",
+        value_name = "NAME",
+        allow_hyphen_values = true
+    )]
     pub project: Option<String>,
 }
 
@@ -68,7 +194,12 @@ impl ProjectScope {
 #[derive(Debug, Args)]
 pub struct ListScope {
     /// The project [default: `TASKIST_PROJECT`, then the current directory, then all projects].
-    #[arg(short = 'p', long = "project", value_name = "NAME")]
+    #[arg(
+        short = 'p',
+        long = "project",
+        value_name = "NAME",
+        allow_hyphen_values = true
+    )]
     pub project: Option<String>,
 
     /// Cover every non-archived project, ignoring `TASKIST_PROJECT` and the current directory.
@@ -86,6 +217,10 @@ impl ListScope {
     }
 }
 
+fn parse_status(value: &str) -> Result<Status, crate::error::Error> {
+    value.parse()
+}
+
 /// The `tk project` commands.
 #[derive(Debug, Subcommand)]
 pub enum ProjectCommand {
@@ -94,10 +229,10 @@ pub enum ProjectCommand {
         /// Project name: lowercase letters, digits and '-'.
         name: String,
         /// Directory linked to the project; commands run inside it target the project.
-        #[arg(long, value_name = "DIR")]
+        #[arg(long, value_name = "DIR", allow_hyphen_values = true)]
         path: Option<PathBuf>,
         /// Description.
-        #[arg(long, value_name = "TEXT")]
+        #[arg(long, value_name = "TEXT", allow_hyphen_values = true)]
         desc: Option<String>,
     },
     /// List projects with their open-task counts.
@@ -116,16 +251,21 @@ pub enum ProjectCommand {
         /// Project name.
         name: String,
         /// New name.
-        #[arg(long = "name", value_name = "NAME")]
+        #[arg(long = "name", value_name = "NAME", allow_hyphen_values = true)]
         new_name: Option<String>,
         /// New linked directory.
-        #[arg(long, value_name = "DIR", conflicts_with = "no_path")]
+        #[arg(
+            long,
+            value_name = "DIR",
+            allow_hyphen_values = true,
+            conflicts_with = "no_path"
+        )]
         path: Option<PathBuf>,
         /// Remove the linked directory.
         #[arg(long)]
         no_path: bool,
         /// New description.
-        #[arg(long, value_name = "TEXT")]
+        #[arg(long, value_name = "TEXT", allow_hyphen_values = true)]
         desc: Option<String>,
     },
     /// Archive a project, or unarchive it with --undo.

@@ -85,10 +85,11 @@ pub fn resolve(tx: &Tx<'_>, env: &Env, request: Request<'_>) -> Result<Scope, Er
     if let Some(name) = env.var("TASKIST_PROJECT").filter(|value| !value.is_empty()) {
         return named(tx, &name.to_string_lossy(), Source::Env);
     }
-    let cwd = std::fs::canonicalize(env.current_dir()).map_err(|err| {
+    let current_dir = env.current_dir()?;
+    let cwd = std::fs::canonicalize(&current_dir).map_err(|err| {
         Error::Internal(format!(
             "cannot resolve the current directory {}: {err}",
-            env.current_dir().display()
+            current_dir.display()
         ))
     })?;
     Ok(

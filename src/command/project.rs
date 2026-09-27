@@ -84,7 +84,7 @@ pub struct ProjectEdit<'a> {
 ///
 /// It must exist, be a directory and have a UTF-8 path, since paths are stored as text.
 fn project_dir(env: &Env, dir: &Path) -> Result<String, Error> {
-    let canonical = std::fs::canonicalize(env.current_dir().join(dir)).map_err(|err| {
+    let canonical = std::fs::canonicalize(env.absolute(dir)?).map_err(|err| {
         Error::Usage(format!(
             "cannot use {} as a project directory: {err}",
             dir.display()

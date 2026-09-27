@@ -19,9 +19,10 @@ use clap::error::ErrorKind;
 
 use crate::cli::{Cli, Command, FeatureCommand, ProjectCommand};
 use crate::command::project::ProjectEdit;
+use crate::command::task::{ListFilter, NewTaskInput, TaskEdit};
 use crate::env::Env;
 use crate::error::Error;
-use crate::output::Format;
+use crate::output::{Format, Paint};
 
 /// Runs one invocation of `tk` and returns the process exit code.
 ///
@@ -43,11 +44,96 @@ pub fn run(args: &[OsString], env: &Env) -> u8 {
         Ok(format) => format,
         Err(err) => return output::emit_failure(Format::Text, &err),
     };
-    match cli.command {
-        Command::Ls { scope } => output::emit(
+    run_command(format, env, cli.by.as_deref(), cli.command)
+}
+
+fn run_command(format: Format, env: &Env, by: Option<&str>, command: Command) -> u8 {
+    use command::task;
+    let paint = Paint::new(env.colour());
+    match command {
+        Command::Add {
+            title,
+            scope,
+            feature,
+            priority,
+            tags,
+            body,
+        } => output::emit(
             format,
-            command::list(env, scope.request()),
-            output::task_list_text,
+            task::add(
+                env,
+                scope.request(),
+                NewTaskInput {
+                    title: &title,
+                    feature: feature.as_deref(),
+                    priority,
+                    tags: &tags,
+                    body: body.as_deref(),
+                },
+                by,
+            ),
+            output::task_added_text,
+        ),
+        Command::Ls {
+            scope,
+            feature,
+            status,
+            tag,
+            all,
+            limit,
+        } => output::emit(
+            format,
+            task::list(
+                env,
+                scope.request(),
+                ListFilter {
+                    feature: feature.as_deref(),
+                    statuses: &status,
+                    tag: tag.as_deref(),
+                    all,
+                    limit,
+                },
+            ),
+            |list| output::task_list_text(list, paint),
+        ),
+        Command::Show { id } => output::emit(format, task::show(env, id), |show| {
+            output::task_show_text(show, paint)
+        }),
+        Command::Edit {
+            id,
+            title,
+            body,
+            priority,
+            feature,
+            no_feature,
+            tags,
+            project,
+        } => output::emit(
+            format,
+            task::edit(
+                env,
+                id,
+                TaskEdit {
+                    title: title.as_deref(),
+                    body: body.as_deref(),
+                    priority,
+                    feature: feature.as_deref(),
+                    no_feature,
+                    tags: &tags,
+                    project: project.as_deref(),
+                },
+            ),
+            output::task_updated_text,
+        ),
+        Command::Next { scope, feature } => output::emit(
+            format,
+            task::next(env, scope.request(), feature.as_deref()),
+            |next| output::next_task_text(next, paint),
+        ),
+        Command::Find { query, scope, all } => output::emit(
+            format,
+            task::find(env, scope.request(), &query, all),
+            |list| output::task_list_text(list, paint),
         ),
         Command::Project { command } => run_project(format, env, command),
         Command::Feature { command } => run_feature(format, env, command),
