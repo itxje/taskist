@@ -19,3 +19,7 @@ Task `20260927-1230-repository-foundation` completed: single `taskist` package w
 ## 2026-09-27 13:00 [progress]
 
 Task `20260927-1300-sqlite-store` completed: `store` module (connection setup with busy timeout, WAL, foreign keys and `synchronous = NORMAL`; numbered migrations tracked by `user_version` and applied under `BEGIN IMMEDIATE`; refusal of a newer schema; write and read transactions; bound-parameter queries for projects, features, tasks, tags and notes) and `model` module (domain types, name and title validation, the status transition table). `rusqlite` 0.40.2 with the `bundled` feature enters `Cargo.toml` with its justification comment. `tk project ls` opens the database through the production path. The test helper is shown to confine `tk` itself, also when the caller's environment sets the variables `tk` reads.
+
+## 2026-09-27 13:44 [progress]
+
+Task `20260927-1344-scope-projects-features` completed: `scope` module (order `-p/--project`, `TASKIST_PROJECT`, current directory, none; component-wise longest-prefix matching on canonical paths; archived projects never match by directory; `--all-projects` for listing commands), global `--json` and `--by` options, actor resolution, the `project add|ls|show|edit|archive|rm` and `feature ls|mv` commands, and `tk ls` listing the open tasks of the resolved scope. `project ls --json` now returns `{"projects": [...]}`. The check that reads the stored actor through the binary follows with task creation.
