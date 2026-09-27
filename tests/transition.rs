@@ -360,6 +360,39 @@ fn done_takes_leading_integers_as_ids_and_one_note() {
 }
 
 #[test]
+fn done_takes_only_plain_digits_as_ids() {
+    let sandbox = sandbox();
+    let one = add(&sandbox, "one");
+    let two = add(&sandbox, "two");
+    // Calibration: a word note closes only the named task.
+    let three = add(&sandbox, "three");
+    ok_data(&json_run(&sandbox, &["done", &three.to_string(), "lgtm"]));
+    assert_eq!(show(&sandbox, one)["task"]["status"], "todo");
+
+    let data = ok_data(&json_run(&sandbox, &["done", &two.to_string(), "+1"]));
+    assert_eq!(data["tasks"].as_array().expect("tasks").len(), 1);
+    assert_eq!(show(&sandbox, one)["task"]["status"], "todo");
+    assert_eq!(show(&sandbox, one)["notes"], Value::Array(vec![]));
+    let shown = show(&sandbox, two);
+    assert_eq!(shown["task"]["status"], "done");
+    assert_eq!(shown["notes"][0]["text"], "+1");
+
+    // A number too large for an id is refused, not stored as a note.
+    let four = add(&sandbox, "four");
+    let before = show(&sandbox, four);
+    let message = err_message(
+        &json_run(
+            &sandbox,
+            &["done", &four.to_string(), "99999999999999999999"],
+        ),
+        2,
+        "usage",
+    );
+    assert!(message.contains("99999999999999999999"), "{message}");
+    assert_eq!(show(&sandbox, four), before);
+}
+
+#[test]
 fn done_refuses_ambiguous_arguments_as_usage_errors() {
     let sandbox = sandbox();
     let id = add(&sandbox, "one");

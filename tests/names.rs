@@ -122,3 +122,92 @@ fn an_invalid_source_feature_of_feature_mv_is_a_usage_error() {
     assert!(message.contains(UNKNOWN), "{message}");
     assert_eq!(mv("auth").status.code(), Some(0));
 }
+
+#[test]
+fn an_invalid_project_name_in_edit_is_a_usage_error_even_for_an_unknown_task() {
+    let (sandbox, id) = seeded();
+    let edit = |args: &[&str]| {
+        sandbox
+            .tk()
+            .args(["--json", "edit"])
+            .args(args)
+            .output()
+            .expect("run tk")
+    };
+    // Calibration: an unknown task with a valid name is not found, and an invalid feature
+    // name is refused before the task is looked up.
+    err_message(&edit(&["999", "-p", "web"]), 3, "not_found");
+    err_message(&edit(&["999", "-f", INVALID]), 2, "usage");
+    err_message(&edit(&[&id, "-p", INVALID]), 2, "usage");
+    let message = err_message(&edit(&["999", "-p", INVALID]), 2, "usage");
+    assert!(message.contains(INVALID), "{message}");
+}
+
+#[test]
+fn an_invalid_name_is_a_usage_error_on_a_database_that_cannot_be_opened() {
+    let (sandbox, id) = seeded();
+    sandbox.sql("PRAGMA user_version = 99", []);
+    // Calibration: the database is refused, and names other than project names are checked
+    // before it is opened.
+    err_message(
+        &run(&sandbox, &project_commands(&id)[0], "web"),
+        1,
+        "unsupported_schema",
+    );
+    for args in [
+        &["ls", "-f", INVALID][..],
+        &["ls", "--tag", INVALID],
+        &["add", "t", "-p", "web", "-f", INVALID],
+        &["edit", &id, "-f", INVALID],
+        &["project", "add", INVALID],
+        &["feature", "mv", INVALID, "login", "-p", "web"],
+    ] {
+        err_message(
+            &sandbox
+                .tk()
+                .arg("--json")
+                .args(args)
+                .output()
+                .expect("run tk"),
+            2,
+            "usage",
+        );
+    }
+    for args in project_commands(&id) {
+        let message = err_message(&run(&sandbox, &args, INVALID), 2, "usage");
+        assert!(message.contains(INVALID), "{args:?}: {message}");
+    }
+    let output = sandbox
+        .tk()
+        .args(["--json", "ls"])
+        .env("TASKIST_PROJECT", INVALID)
+        .output()
+        .expect("run tk");
+    err_message(&output, 2, "usage");
+}
+
+#[test]
+fn an_invalid_project_name_creates_no_database() {
+    let sandbox = Sandbox::new();
+    // Calibration: a command with a valid unknown name creates the database.
+    let control = Sandbox::new();
+    err_message(
+        &run(&control, &project_commands("1")[0], UNKNOWN),
+        3,
+        "not_found",
+    );
+    assert!(control.db().exists());
+
+    for args in project_commands("1") {
+        err_message(&run(&sandbox, &args, INVALID), 2, "usage");
+        assert!(!sandbox.db().exists(), "{args:?}");
+    }
+    let output = sandbox
+        .tk()
+        .args(["--json", "ls"])
+        .env("TASKIST_PROJECT", INVALID)
+        .output()
+        .expect("run tk");
+    err_message(&output, 2, "usage");
+    assert!(!sandbox.db().exists());
+}

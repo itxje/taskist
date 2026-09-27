@@ -69,35 +69,70 @@ impl Scope {
     }
 }
 
-/// Resolves the scope of one command.
-pub fn resolve(tx: &Tx<'_>, env: &Env, request: Request<'_>) -> Result<Scope, Error> {
-    if request.all_projects {
+/// The project a request asks for, with any name in it already validated.
+///
+/// Built by [`target`] before the store is opened, so an invalid name is a `usage` error
+/// whatever state the database is in; [`resolve`] takes only this type, so no name reaches
+/// a lookup unvalidated.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Target {
+    pick: Pick,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Pick {
+    /// `--all-projects`: no project.
+    All,
+    /// A project name from the flag or the variable.
+    Named(String, Source),
+    /// The project linked to the current directory, if any.
+    Directory,
+}
+
+/// Decides where the project of a request comes from and validates its name, without
+/// reading the database.
+pub fn target(env: &Env, request: Request<'_>) -> Result<Target, Error> {
+    let pick = if request.all_projects {
         if request.project.is_some() {
             return Err(Error::Usage(
                 "--all-projects cannot be used with -p/--project".into(),
             ));
         }
-        return Ok(none());
+        Pick::All
+    } else if let Some(name) = request.project {
+        Pick::Named(name.to_owned(), Source::Flag)
+    } else if let Some(name) = env.var("TASKIST_PROJECT").filter(|value| !value.is_empty()) {
+        Pick::Named(name.to_string_lossy().into_owned(), Source::Env)
+    } else {
+        Pick::Directory
+    };
+    if let Pick::Named(name, _) = &pick {
+        validate_name("project name", name)?;
     }
-    if let Some(name) = request.project {
-        return named(tx, name, Source::Flag);
+    Ok(Target { pick })
+}
+
+/// Resolves the scope of one command.
+pub fn resolve(tx: &Tx<'_>, env: &Env, target: &Target) -> Result<Scope, Error> {
+    match &target.pick {
+        Pick::All => Ok(none()),
+        Pick::Named(name, source) => named(tx, name, *source),
+        Pick::Directory => {
+            let current_dir = env.current_dir()?;
+            let cwd = std::fs::canonicalize(&current_dir).map_err(|err| {
+                Error::Internal(format!(
+                    "cannot resolve the current directory {}: {err}",
+                    current_dir.display()
+                ))
+            })?;
+            Ok(
+                match_directory(tx.projects(false)?, &cwd).map_or_else(none, |project| Scope {
+                    project: Some(project),
+                    source: Source::Cwd,
+                }),
+            )
+        }
     }
-    if let Some(name) = env.var("TASKIST_PROJECT").filter(|value| !value.is_empty()) {
-        return named(tx, &name.to_string_lossy(), Source::Env);
-    }
-    let current_dir = env.current_dir()?;
-    let cwd = std::fs::canonicalize(&current_dir).map_err(|err| {
-        Error::Internal(format!(
-            "cannot resolve the current directory {}: {err}",
-            current_dir.display()
-        ))
-    })?;
-    Ok(
-        match_directory(tx.projects(false)?, &cwd).map_or_else(none, |project| Scope {
-            project: Some(project),
-            source: Source::Cwd,
-        }),
-    )
 }
 
 const fn none() -> Scope {
@@ -108,7 +143,6 @@ const fn none() -> Scope {
 }
 
 fn named(tx: &Tx<'_>, name: &str, source: Source) -> Result<Scope, Error> {
-    validate_name("project name", name)?;
     let project = tx
         .project_by_name(name)?
         .ok_or_else(|| Error::NotFound(format!("no project named {name:?}")))?;

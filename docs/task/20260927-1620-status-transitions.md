@@ -27,7 +27,12 @@ Acceptance:
 - An invalid project name (for example `BAD_NAME`) in `-p` of `ls`, `next`, `find`,
   `feature ls`, `feature mv`, `add` and `edit`, in `TASKIST_PROJECT`, and in
   `project show|edit|archive|rm`, and an invalid feature name as `feature mv <old>`, exits 2
-  with `usage`; a valid unknown name exits 3 with `not_found`.
+  with `usage`; a valid unknown name exits 3 with `not_found`. The name is checked before
+  the store is opened, so the answer is the same for an unknown task id, for a database that
+  cannot be opened, and on a fresh environment, where no database is created.
+- `done` takes as ids only leading arguments made of ASCII digits: `tk done 2 +1` stores the
+  note `+1` on task 2 and leaves task 1 open; an all-digit argument too large for an id is a
+  `usage` error naming it.
 
 ## ActiveForm
 
@@ -57,6 +62,12 @@ Adding the status transition and note commands and validating lookup names
   was reported as `not_found` instead of `usage`. Every other `project_by_name` and
   `feature_by_name` caller already receives a validated or stored name.
 
+- A name check inside the lookup runs after the store is opened and, in `edit`, after the
+  task is looked up, so an invalid `-p` name was reported as `not_found` for an unknown task
+  and as `unsupported_schema` for a newer database, and a fresh environment got a database
+  file before the refusal.
+- `split_done_args` took every argument `i64::from_str` accepts as an id, including `+1`.
+
 ### Proposal
 
 - The status commands are one flattened `StatusCommand` enum, dispatched by its own function,
@@ -75,10 +86,14 @@ Adding the status transition and note commands and validating lookup names
   `noted #<id> in <location>: <title>` for `note`.
 - The `ls` layout fixture seeds its statuses and reasons through `tk start`, `tk block`,
   `tk note` and `tk done`.
-- Validate the name with `validate_name` in the two project lookups, `scope::named` and
-  `command::project_named`, before the query, and validate `<old>` of `feature mv` next to
-  `<new>`. Every command that looks up a project by name goes through one of the two, so a
-  new command gets the rule without its own check.
+- Validate every name where it enters, before the store is opened. `scope::target` turns the
+  scope request (`-p`, `TASKIST_PROJECT`, `--all-projects`, the directory) into a `Target`
+  and validates its project name without reading the database; `scope::resolve` accepts only
+  a `Target`, so no scope name reaches a lookup unvalidated. `project show|edit|archive|rm`
+  and `edit -p` validate their name at the top of the command; `command::project_named` only
+  looks up. `feature mv` validates `<old>` next to `<new>`.
+- An id of `done` is a non-empty run of ASCII digits that parses as an `i64`; a longer one is
+  a `usage` error naming the value.
 
 ### Results
 
@@ -98,9 +113,24 @@ Adding the status transition and note commands and validating lookup names
 - The `ls` layout fixture now reaches its statuses and reasons through `tk start`, `tk block`,
   `tk note` and `tk done`; its expected output is unchanged.
 - `cargo fmt --all --check`, `cargo clippy --all-targets --locked` and
-  `cargo nextest run --locked --no-tests=pass`: 175 passed, 0 skipped, after the name
-  validation below.
-- Name validation, failing first: in `tests/names.rs` the three tests with an invalid name
+  `cargo nextest run --locked --no-tests=pass`: 175 passed, 0 skipped, after the first
+  version of the name validation.
+- Names before the store and digit ids, failing first: with the source before this change,
+  `an_invalid_project_name_in_edit_is_a_usage_error_even_for_an_unknown_task` (exit 3 for
+  `edit 999 -p BAD_NAME`), `an_invalid_name_is_a_usage_error_on_a_database_that_cannot_be_opened`
+  (exit 1 `unsupported_schema`), `an_invalid_project_name_creates_no_database` and
+  `done_takes_only_plain_digits_as_ids` (task 1 closed by the note `+1`) failed; their
+  calibration cases passed. The unit tests `only_plain_digits_are_ids`
+  (`left: ([2, 1], None)`, `right: ([2], Some("+1"))`) and
+  `a_number_too_large_for_an_id_is_a_usage_error_naming_it` failed too. All pass after it.
+- Every command that takes a name validates it before opening the store: `add -p/-f/--tag`,
+  `edit -p/-f/--tag`, `ls -p/-f/--tag`, `next -p/-f`, `find -p`, `feature ls -p`,
+  `feature mv <old> <new> -p`, `TASKIST_PROJECT` through `scope::target`, and
+  `project add|show|edit|archive|rm` including `edit --name`.
+- `cargo fmt --all --check`, `cargo clippy --all-targets --locked` and
+  `cargo nextest run --locked --no-tests=pass`: 181 passed, 0 skipped. `typos`, `cargo shear`
+  and `cargo deny check` report no issues.
+- Name validation, first version, failing first: in `tests/names.rs` the three tests with an invalid name
   failed before the change with exit 3 where 2 was expected (`left: Some(3)`,
   `right: Some(2)`); the calibration test, which runs every command line with the known name
   `web`, passed. After the change all four pass. Each case also checks that a valid unknown

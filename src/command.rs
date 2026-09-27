@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::env::Env;
 use crate::error::Error;
-use crate::model::{Project, Status, validate_name};
+use crate::model::{Project, Status};
 use crate::scope::Scope;
 use crate::store::{Store, Tx};
 
@@ -132,9 +132,11 @@ fn project_view(tx: &Tx<'_>, project: Project) -> Result<ProjectView, Error> {
     })
 }
 
-/// The project called `name`; an invalid name is a `usage` error, an unknown one `not_found`.
+/// The project called `name`, or `not_found`.
+///
+/// Callers validate `name` with [`crate::model::validate_name`] before they open the store, so an invalid
+/// name is a `usage` error whatever state the database is in.
 fn project_named(tx: &Tx<'_>, name: &str) -> Result<Project, Error> {
-    validate_name("project name", name)?;
     tx.project_by_name(name)?
         .ok_or_else(|| Error::NotFound(format!("no project named {name:?}")))
 }
