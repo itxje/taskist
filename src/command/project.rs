@@ -159,6 +159,7 @@ pub fn list(env: &Env, all: bool) -> Result<ProjectList, Error> {
 
 /// `tk project show`.
 pub fn show(env: &Env, name: &str) -> Result<ProjectShow, Error> {
+    validate_name("project name", name)?;
     open_store(env)?.read(|tx| {
         let project = project_named(tx, name)?;
         let tally = Tally::of(tx, project.id)?;
@@ -197,6 +198,7 @@ pub fn edit(env: &Env, name: &str, edit: ProjectEdit<'_>) -> Result<ProjectData,
             "nothing to change: pass --name, --path, --no-path or --desc".into(),
         ));
     }
+    validate_name("project name", name)?;
     if let Some(new_name) = edit.name {
         validate_name("project name", new_name)?;
     }
@@ -229,6 +231,7 @@ pub fn edit(env: &Env, name: &str, edit: ProjectEdit<'_>) -> Result<ProjectData,
 
 /// `tk project archive`: archives, or unarchives with `undo`; idempotent.
 pub fn archive(env: &Env, name: &str, undo: bool) -> Result<ProjectArchive, Error> {
+    validate_name("project name", name)?;
     open_store(env)?.write(|tx| {
         let mut project = project_named(tx, name)?;
         let archived = !undo;
@@ -246,6 +249,7 @@ pub fn archive(env: &Env, name: &str, undo: bool) -> Result<ProjectArchive, Erro
 
 /// `tk project rm`: a project with tasks needs `force`, which deletes them with it.
 pub fn remove(env: &Env, name: &str, force: bool) -> Result<ProjectRemoval, Error> {
+    validate_name("project name", name)?;
     open_store(env)?.write(|tx| {
         let project = project_named(tx, name)?;
         let tasks = Tally::of(tx, project.id)?.total();

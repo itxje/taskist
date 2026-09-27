@@ -128,6 +128,9 @@ pub enum Command {
         )]
         project: Option<String>,
     },
+    /// The status and note commands.
+    #[command(flatten)]
+    Status(StatusCommand),
     /// Show the open task to work on next: by priority, then doing before todo, then age.
     Next {
         /// Scope options.
@@ -164,6 +167,53 @@ pub enum Command {
         /// The feature command to run.
         #[command(subcommand)]
         command: FeatureCommand,
+    },
+}
+
+/// The commands that change the status of tasks or append a note.
+#[derive(Debug, Subcommand)]
+pub enum StatusCommand {
+    /// Start tasks: todo or blocked becomes doing.
+    Start {
+        /// Task ids.
+        #[arg(required = true)]
+        ids: Vec<i64>,
+    },
+    /// Block a task, with the reason stored as a note.
+    Block {
+        /// Task id.
+        id: i64,
+        /// Why the task is blocked.
+        reason: String,
+    },
+    /// Finish tasks, with an optional note stored on each.
+    Done {
+        /// Task ids, then at most one note; a note that is a number needs --note.
+        #[arg(value_name = "ID|NOTE", required = true)]
+        args: Vec<String>,
+        /// The note, given explicitly.
+        #[arg(long, value_name = "TEXT", allow_hyphen_values = true)]
+        note: Option<String>,
+    },
+    /// Drop a task, with the reason stored as a note.
+    Drop {
+        /// Task id.
+        id: i64,
+        /// Why the task will not be done.
+        reason: String,
+    },
+    /// Reopen tasks: any other status becomes todo.
+    Reopen {
+        /// Task ids.
+        #[arg(required = true)]
+        ids: Vec<i64>,
+    },
+    /// Append a note to a task.
+    Note {
+        /// Task id.
+        id: i64,
+        /// The note.
+        text: String,
     },
 }
 

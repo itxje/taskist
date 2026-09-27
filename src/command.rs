@@ -4,6 +4,7 @@
 pub mod feature;
 pub mod project;
 pub mod task;
+pub mod transition;
 
 use serde::Serialize;
 
@@ -131,6 +132,10 @@ fn project_view(tx: &Tx<'_>, project: Project) -> Result<ProjectView, Error> {
     })
 }
 
+/// The project called `name`, or `not_found`.
+///
+/// Callers validate `name` with [`crate::model::validate_name`] before they open the store, so an invalid
+/// name is a `usage` error whatever state the database is in.
 fn project_named(tx: &Tx<'_>, name: &str) -> Result<Project, Error> {
     tx.project_by_name(name)?
         .ok_or_else(|| Error::NotFound(format!("no project named {name:?}")))

@@ -448,6 +448,15 @@ impl Tx<'_> {
         expect_one(changed, "task", id)
     }
 
+    /// Sets the update time of a task to now.
+    pub fn touch_task(&self, id: i64) -> Result<(), Error> {
+        let changed = self.tx.execute(
+            concat!("UPDATE task SET updated_at = ", now!(), " WHERE id = ?1"),
+            [id],
+        )?;
+        expect_one(changed, "task", id)
+    }
+
     fn with_tags(&self, mut task: Task) -> Result<Task, Error> {
         task.tags = self.tags(task.id)?;
         Ok(task)

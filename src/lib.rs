@@ -17,11 +17,12 @@ use std::ffi::{OsStr, OsString};
 use clap::Parser;
 use clap::error::ErrorKind;
 
-use crate::cli::{Cli, Command, FeatureCommand, ProjectCommand};
+use crate::cli::{Cli, Command, FeatureCommand, ProjectCommand, StatusCommand};
 use crate::command::project::ProjectEdit;
 use crate::command::task::{ListFilter, NewTaskInput, TaskEdit};
 use crate::env::Env;
 use crate::error::Error;
+use crate::model::{Action, NoteKind};
 use crate::output::{Format, Paint};
 
 /// Runs one invocation of `tk` and returns the process exit code.
@@ -125,6 +126,7 @@ fn run_command(format: Format, env: &Env, by: Option<&str>, command: Command) ->
             ),
             output::task_updated_text,
         ),
+        Command::Status(command) => run_status(format, env, by, command),
         Command::Next { scope, feature } => output::emit(
             format,
             task::next(env, scope.request(), feature.as_deref()),
@@ -138,6 +140,62 @@ fn run_command(format: Format, env: &Env, by: Option<&str>, command: Command) ->
         Command::Project { command } => run_project(format, env, command),
         Command::Feature { command } => run_feature(format, env, command),
     }
+}
+
+fn run_status(format: Format, env: &Env, by: Option<&str>, command: StatusCommand) -> u8 {
+    match command {
+        StatusCommand::Start { ids } => transition(format, env, Action::Start, &ids, None, by),
+        StatusCommand::Block { id, reason } => transition(
+            format,
+            env,
+            Action::Block,
+            &[id],
+            Some((NoteKind::Blocked, &reason)),
+            by,
+        ),
+        StatusCommand::Done { args, note } => {
+            match command::transition::split_done_args(&args, note) {
+                Ok((ids, note)) => transition(
+                    format,
+                    env,
+                    Action::Done,
+                    &ids,
+                    note.as_deref().map(|text| (NoteKind::Done, text)),
+                    by,
+                ),
+                Err(err) => output::emit_failure(format, &err),
+            }
+        }
+        StatusCommand::Drop { id, reason } => transition(
+            format,
+            env,
+            Action::Drop,
+            &[id],
+            Some((NoteKind::Dropped, &reason)),
+            by,
+        ),
+        StatusCommand::Reopen { ids } => transition(format, env, Action::Reopen, &ids, None, by),
+        StatusCommand::Note { id, text } => output::emit(
+            format,
+            command::transition::note(env, id, &text, by),
+            output::task_noted_text,
+        ),
+    }
+}
+
+fn transition(
+    format: Format,
+    env: &Env,
+    action: Action,
+    ids: &[i64],
+    note: Option<(NoteKind, &str)>,
+    by: Option<&str>,
+) -> u8 {
+    output::emit(
+        format,
+        command::transition::transition(env, action, ids, note, by),
+        output::transition_text,
+    )
 }
 
 fn run_project(format: Format, env: &Env, command: ProjectCommand) -> u8 {

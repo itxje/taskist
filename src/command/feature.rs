@@ -51,8 +51,9 @@ fn features_of(tx: &Tx<'_>, project: &Project) -> Result<Vec<FeatureView>, Error
 
 /// `tk feature ls`: the features of the resolved scope with open and total counts.
 pub fn list(env: &Env, request: Request<'_>) -> Result<FeatureList, Error> {
+    let target = scope::target(env, request)?;
     open_store(env)?.read(|tx| {
-        let scope = scope::resolve(tx, env, request)?;
+        let scope = scope::resolve(tx, env, &target)?;
         let mut features = Vec::new();
         for project in &listed_projects(tx, &scope)? {
             features.extend(features_of(tx, project)?);
@@ -64,9 +65,11 @@ pub fn list(env: &Env, request: Request<'_>) -> Result<FeatureList, Error> {
 /// `tk feature mv`: renames `old` to `new`, or, when `new` exists, moves every task of
 /// `old` to it and deletes `old`.
 pub fn rename(env: &Env, old: &str, new: &str, request: Request<'_>) -> Result<FeatureMove, Error> {
+    validate_name("feature name", old)?;
     validate_name("feature name", new)?;
+    let target = scope::target(env, request)?;
     open_store(env)?.write(|tx| {
-        let project = scope::resolve(tx, env, request)?.require()?;
+        let project = scope::resolve(tx, env, &target)?.require()?;
         let source = tx.feature_by_name(project.id, old)?.ok_or_else(|| {
             Error::NotFound(format!(
                 "no feature named {old:?} in project {}",

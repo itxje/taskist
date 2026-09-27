@@ -165,7 +165,7 @@ fn missing_feature(task: &Task, feature: i64) -> Error {
 }
 
 /// The view of one task, with its project and feature names read from the store.
-fn view(tx: &Tx<'_>, task: Task) -> Result<TaskView, Error> {
+pub(super) fn view(tx: &Tx<'_>, task: Task) -> Result<TaskView, Error> {
     let project = tx.project_by_id(task.project_id)?.ok_or_else(|| {
         Error::Internal(format!(
             "task {} refers to the missing project {}",
@@ -183,7 +183,7 @@ fn view(tx: &Tx<'_>, task: Task) -> Result<TaskView, Error> {
     Ok(task_view(task, &project.name, feature))
 }
 
-fn task_by_id(tx: &Tx<'_>, id: i64) -> Result<Task, Error> {
+pub(super) fn task_by_id(tx: &Tx<'_>, id: i64) -> Result<Task, Error> {
     tx.task(id)?
         .ok_or_else(|| Error::NotFound(format!("no task with id {id}")))
 }
@@ -224,8 +224,9 @@ pub fn add(
     }
     let body = body_text(input.body)?.unwrap_or_default();
     let actor = env.actor(by);
+    let target = scope::target(env, request)?;
     open_store(env)?.write(|tx| {
-        let project = scope::resolve(tx, env, request)?.require()?;
+        let project = scope::resolve(tx, env, &target)?.require()?;
         refuse_archived(&project)?;
         let feature_id = input
             .feature
@@ -304,6 +305,9 @@ pub fn edit(env: &Env, id: i64, change: TaskEdit<'_>) -> Result<TaskData, Error>
         .iter()
         .map(|tag| tag_change(tag))
         .collect::<Result<Vec<_>, _>>()?;
+    if let Some(project) = change.project {
+        validate_name("project name", project)?;
+    }
     let body = body_text(change.body)?;
     open_store(env)?.write(|tx| {
         let task = task_by_id(tx, id)?;
@@ -481,8 +485,9 @@ pub fn list(env: &Env, request: Request<'_>, filter: ListFilter<'_>) -> Result<T
     if let Some(tag) = filter.tag {
         validate_name("tag", tag)?;
     }
+    let target = scope::target(env, request)?;
     open_store(env)?.read(|tx| {
-        let scope = scope::resolve(tx, env, request)?;
+        let scope = scope::resolve(tx, env, &target)?;
         let covered = covered(tx, &scope)?;
         check_feature(&scope, &covered, filter.feature)?;
         let tasks = collect(tx, &covered, |task| {
@@ -509,8 +514,9 @@ pub fn next(env: &Env, request: Request<'_>, feature: Option<&str>) -> Result<Ne
     if let Some(feature) = feature {
         validate_name("feature name", feature)?;
     }
+    let target = scope::target(env, request)?;
     open_store(env)?.read(|tx| {
-        let scope = scope::resolve(tx, env, request)?;
+        let scope = scope::resolve(tx, env, &target)?;
         let covered = covered(tx, &scope)?;
         check_feature(&scope, &covered, feature)?;
         let candidates = collect(tx, &covered, |task| {
@@ -565,8 +571,9 @@ fn fold_case(text: &str) -> String {
 pub fn find(env: &Env, request: Request<'_>, query: &str, all: bool) -> Result<TaskList, Error> {
     let needle = fold_case(query);
     let matches = |text: &str| fold_case(text).contains(&needle);
+    let target = scope::target(env, request)?;
     open_store(env)?.read(|tx| {
-        let scope = scope::resolve(tx, env, request)?;
+        let scope = scope::resolve(tx, env, &target)?;
         let covered = covered(tx, &scope)?;
         let tasks = collect(tx, &covered, |task| {
             if !(all || task.status.is_open()) {
