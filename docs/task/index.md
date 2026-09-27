@@ -40,3 +40,4 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**20260927-1409-task-commands Add the task create, list, show, edit, next and find commands**](20260927-1409-task-commands.md) `P1`
 - [x] [**20260927-1530-task-command-fixes Fix find case folding, dash values, filter names, colour rules and the ls age order**](20260927-1530-task-command-fixes.md) `P1`
 - [x] [**20260927-1620-status-transitions Add the status transition and note commands and validate lookup names**](20260927-1620-status-transitions.md) `P1`
+- [x] [**20260927-1700-brief-export-import Add brief, export and import**](20260927-1700-brief-export-import.md) `P1`

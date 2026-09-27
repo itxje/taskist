@@ -35,3 +35,7 @@ Task `20260927-1530-task-command-fixes` completed: `find` folds case per charact
 ## 2026-09-27 16:20 [progress]
 
 Task `20260927-1620-status-transitions` completed: `start`, `block`, `done`, `drop`, `reopen` and `note` on top of the single transition table, each in one immediate transaction; several ids are all-or-nothing, a no-op writes nothing, reasons and notes are stored with the resolved actor, and `closed_at` is set by `done` and `drop` and cleared by `reopen`. `done` takes leading plain-digit arguments as ids and at most one note. Project and feature names given to look something up are validated before the database is opened, so an invalid name is a `usage` error and a valid unknown one `not_found`.
+
+## 2026-09-27 17:00 [progress]
+
+Task `20260927-1700-brief-export-import` completed: `brief` prints a markdown digest of open work per project and feature with a separate list of blocked tasks and their reasons; `export` writes every project, feature, task (closed ones included), tag and note to stdout as a versioned JSON document or as markdown, restricted only by `-p`; `import` creates one task per JSON line from a file or stdin, validates every line before opening the database, and applies the whole file in one transaction, naming the line of the first error.
