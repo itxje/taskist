@@ -76,9 +76,12 @@ Adding the repository foundation and the tk entry point
 - Integration tests are marked `#![cfg(test)]` so the `clippy.toml` test allowances apply to
   their helper functions; `tests/common` is `pub mod` so `unreachable_pub` and
   `clippy::redundant_pub_crate` do not conflict.
-- The helper runs `tk` with `env_clear`, `TASKIST_DB`, `HOME`, `XDG_DATA_HOME` and the working
-  directory inside a fresh temporary directory; `assert_cmd` hands the child an empty stdin
-  pipe that is closed before waiting unless a test supplies input.
+- The helper builds every sandboxed command in one private function: `env_clear`, then
+  `TASKIST_DB`, `HOME` and `XDG_DATA_HOME` inside a fresh temporary directory, the `work`
+  subdirectory as working directory, and an empty stdin input that the child reads as
+  end-of-file at once unless a test supplies its own with `write_stdin`. `tk()` and
+  `tk_without_db()` run the binary through it; `program()` and `program_without_db()` run any
+  other program through the same function, so tests can observe what a child receives.
 - No `_typos.toml`: `typos` reports nothing on the repository.
 
 ### Results
@@ -89,10 +92,23 @@ Adding the repository foundation and the tk entry point
   nothing. The test for the `rusqlite` justification comment was later removed together with
   the dependency; it returns with the SQLite store.
 - `cargo fmt --all --check && cargo clippy --all-targets --locked && cargo nextest run --locked
-  --no-tests=pass`: passed, no warnings, 38 tests run, 38 passed, 0 skipped.
+  --no-tests=pass`: passed, no warnings, 42 tests run, 42 passed, 0 skipped.
 - `cargo shear`: no issues found.
 - `cargo deny check`: advisories ok, bans ok, licenses ok, sources ok.
 - `typos`: no findings.
-- The sandbox test currently finds no database file, because no command opens the database
-  yet; it asserts that the resolved location lies inside the temporary directory and that any
-  database file created is that one.
+- The sandbox tests observe the child process, not the helper's variable list: `env` run
+  through the helper must print exactly the sandbox variables (without `TASKIST_DB` for
+  `program_without_db`), each an absolute path inside the temporary directory; `pwd -P` must
+  print the `work` directory; `cat` must exit at once with no output, and echo input a test
+  supplies. The database location is then resolved from the environment the child printed and
+  must lie inside the temporary directory, and `tk` runs through the helper without
+  `TASKIST_DB`. A unit test calibrates the confinement check: it rejects an environment with
+  `HOME` outside the temporary directory and one with inherited variables.
+- Confinement check, against modified copies of the helper: pointing `HOME` outside the
+  temporary directory or inheriting the caller's environment makes
+  `helper_without_taskist_db_still_stays_inside_the_sandbox` fail; feeding the child input by
+  default makes `helper_closes_stdin` fail.
+- The removed-directory tests in `tests/cli.rs` run through the same helper function.
+- No command opens the database yet, so the file scan finds none; because every location
+  `tk` can derive from the observed environment lies inside the temporary directory, scanning
+  that directory covers every database it could create.

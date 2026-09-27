@@ -9,7 +9,7 @@
     reason = "each integration test crate uses a different part of the helper"
 )]
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
 use assert_cmd::Command;
@@ -72,25 +72,47 @@ impl Sandbox {
     }
 
     /// A `tk` command with the sandbox environment.
-    ///
-    /// Stdin is closed: the command gets an empty pipe that is closed before the
-    /// child is awaited, unless the test supplies input with `write_stdin`.
     pub fn tk(&self) -> Command {
-        self.command(self.vars())
+        self.program(tk_path())
     }
 
     /// A `tk` command with the sandbox environment but without `TASKIST_DB`.
     pub fn tk_without_db(&self) -> Command {
+        self.program_without_db(tk_path())
+    }
+
+    /// Any program, run exactly as `tk` is: the sandbox environment, `work()` as the
+    /// working directory, stdin closed. Tests use it to observe what the helper hands a child.
+    pub fn program(&self, program: impl AsRef<OsStr>) -> Command {
+        self.command(program.as_ref(), self.vars())
+    }
+
+    /// Any program, run exactly as `tk_without_db` runs `tk`.
+    pub fn program_without_db(&self, program: impl AsRef<OsStr>) -> Command {
         let vars = self
             .vars()
             .into_iter()
             .filter(|(name, _)| name != "TASKIST_DB");
-        self.command(vars)
+        self.command(program.as_ref(), vars)
     }
 
-    fn command(&self, vars: impl IntoIterator<Item = (OsString, OsString)>) -> Command {
-        let mut cmd = std::process::Command::new(assert_cmd::cargo::cargo_bin!("tk"));
+    /// The single place that builds a sandboxed command.
+    ///
+    /// Stdin is an empty input that is closed as soon as the child starts, so a read
+    /// sees end-of-file at once; a test that supplies input replaces it with `write_stdin`.
+    fn command(
+        &self,
+        program: &OsStr,
+        vars: impl IntoIterator<Item = (OsString, OsString)>,
+    ) -> Command {
+        let mut cmd = std::process::Command::new(program);
         cmd.env_clear().envs(vars).current_dir(self.work());
-        Command::from_std(cmd)
+        let mut cmd = Command::from_std(cmd);
+        cmd.write_stdin("");
+        cmd
     }
+}
+
+fn tk_path() -> &'static Path {
+    assert_cmd::cargo::cargo_bin!("tk")
 }

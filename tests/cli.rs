@@ -143,14 +143,10 @@ fn unknown_format_variable_is_a_usage_error() {
         .stderr(predicate::str::starts_with("error: "));
 }
 
-/// Runs `tk` from a working directory that was removed after the shell entered it.
+/// Runs `tk` through the helper from its working directory, which the shell removes first.
 fn tk_in_removed_directory(sandbox: &Sandbox, args: &[&str]) -> std::process::Output {
-    let gone = sandbox.root().join("gone");
-    std::fs::create_dir(&gone).expect("create directory");
-    std::process::Command::new("/bin/sh")
-        .env_clear()
-        .envs(sandbox.vars())
-        .current_dir(&gone)
+    sandbox
+        .program("/usr/bin/sh")
         .arg("-c")
         .arg(r#"rmdir "$PWD" && exec "$0" "$@""#)
         .arg(assert_cmd::cargo::cargo_bin!("tk"))
