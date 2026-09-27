@@ -51,3 +51,7 @@ Task `20260927-1900-guide-docs-coverage` completed: `docs/guide.md` is embedded 
 ## 2026-09-27 20:00 [progress]
 
 Task `20260927-2000-empty-values-coverage-map` completed: the guide and the README name which empty environment values count as unset (`TASKIST_DB`, `XDG_DATA_HOME`, `HOME`, `TASKIST_PROJECT`, `TASKIST_ACTOR`, `USER`, `NO_COLOR`, `CLICOLOR_FORCE`), which count as set (`CLICOLOR`, `TERM`, `CI`, following the colour rules of `anstream`), and that an empty `TASKIST_FORMAT` is a usage error; the acceptance map names the `cargo llvm-cov nextest` measurement and this changelog as the coverage evidence. Line coverage over the whole package: 97.92%.
+
+## 2026-09-27 17:36 [decision]
+
+Plan `20260927-1728-ci-and-release` approved: GitHub Actions CI runs the quality gates and a static musl build on native `x86_64` and `aarch64` runners; a `v*` tag builds `tk` for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` with the `dist` profile (bundled SQLite compiled by `musl-gcc`) and publishes the archives with `SHA256SUMS` as a GitHub release. Actions are pinned to commit SHAs and CI tools to exact versions.

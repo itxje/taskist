@@ -7,6 +7,23 @@ terminal and by an automated agent through a stable, non-interactive JSON contra
 The full usage guide ships inside the binary: `tk guide` prints it, and it is kept in
 `docs/guide.md`. Point a project's `AGENTS.md` or an agent skill at `tk guide`.
 
+## Install a release binary
+
+Each release on <https://github.com/itxje/taskist/releases> carries static Linux binaries
+(musl, no runtime dependencies) for `x86_64` and `aarch64`, and a `SHA256SUMS` file.
+
+```bash
+version=0.1.0
+target=x86_64-unknown-linux-musl   # or aarch64-unknown-linux-musl
+base=https://github.com/itxje/taskist/releases/download/v$version
+curl -fLO "$base/tk-$version-$target.tar.gz"
+curl -fLO "$base/SHA256SUMS"
+sha256sum --check --ignore-missing SHA256SUMS
+tar -xzf "tk-$version-$target.tar.gz"
+install -m 0755 "tk-$version-$target/tk" ~/.local/bin/tk
+tk --version
+```
+
 ## Install from source
 
 Requires the Rust toolchain pinned in `rust-toolchain.toml` and a C compiler, because SQLite

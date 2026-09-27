@@ -63,3 +63,17 @@ Line coverage is measured with `cargo llvm-cov nextest` over the whole package; 
 of the MVP build is recorded in `docs/changelog.md`. `tests/common/mod.rs` passes
 `LLVM_PROFILE_FILE` through to `tk`, so the processes the integration tests start count
 towards it.
+
+## Delivery
+
+- `.github/workflows/ci.yml` runs on every push to `main` and every pull request: the quality
+  gates (fmt, clippy, nextest, doctests, cargo-deny, cargo-shear, typos, the MSRV check) and a
+  static musl build for `x86_64` and `aarch64`, each on a native runner.
+- `.github/workflows/release.yml` runs on a `v*` tag: it checks that the tag matches the package
+  version, builds `tk` with the `dist` profile for `x86_64-unknown-linux-musl` and
+  `aarch64-unknown-linux-musl` on native runners, and publishes one archive per target
+  (`tk`, `LICENSE`, `README.md`) with a `SHA256SUMS` file as a GitHub release. A tag with a
+  `-` suffix is published as a pre-release.
+- `.github/scripts/build-static.sh` is the build both workflows share: `musl-gcc` compiles the
+  bundled SQLite, the binary must have no program interpreter and no `NEEDED` entry, and it
+  must run `tk --version` on the runner.
