@@ -86,10 +86,14 @@ tk project rm scratch
 status `todo`; its feature is created when it does not exist. `--body -` reads the body from
 stdin.
 
-`tk ls [-p P] [--all-projects] [-f FEATURE] [--status S,S] [--tag TAG] [--all] [--limit N]`
-lists open tasks (`todo`, `doing`, `blocked`) grouped by project and feature, ordered by
+`tk ls [-p P] [--all-projects] [-f FEATURE] [--status S,S] [--tag TAG] [--all] [--limit N] [--since WHEN]`
+lists open tasks (`todo`, `doing`, `blocked`) ordered by project, then feature, then
 priority, then age, then id; `--all` adds `done` and `dropped` tasks, `--status` picks
-statuses.
+statuses. `--since WHEN` keeps tasks created in the last `<N>m`, `<N>h`, `<N>d` or `<N>w`
+(`3d` is the last 72 hours), or since local midnight of a date `YYYY-MM-DD`; any other
+value is a `usage` error. The human form is a table with the columns `ID`, `PRI`, `STATUS`,
+`PROJECT` (left out when the list is scoped to one project), `FEATURE`, `AGE` (time since
+creation: `<N>m`, `<N>h` or `<N>d`) and `TITLE`.
 
 `tk show ID` shows a task with all its notes.
 
@@ -112,6 +116,7 @@ TASKIST_PROJECT=api tk add "Document error codes" --body "List every code."
 tk ls
 tk ls --all-projects
 tk ls --status todo,doing --tag bug --json
+tk ls --all-projects --since 3d
 tk show 1
 tk edit 1 --title "Fix the login redirect loop" --tag +urgent
 printf 'Steps:\n1. sign in with an expired session\n' | tk edit 1 --body -

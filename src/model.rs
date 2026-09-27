@@ -85,6 +85,68 @@ impl FromStr for Status {
     }
 }
 
+/// A `--since` value: how far back from now, or from which local calendar date.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Since {
+    /// `<N>m`: the last `N` minutes.
+    Minutes(u64),
+    /// `<N>h`: the last `N` hours.
+    Hours(u64),
+    /// `<N>d`, or `<N>w` as `7N` days: the last `N` days.
+    Days(u64),
+    /// `YYYY-MM-DD`: from local midnight at the start of that day. The calendar check is
+    /// left to the store, which computes the cutoff.
+    Date(String),
+}
+
+impl fmt::Display for Since {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Minutes(amount) => write!(f, "{amount}m"),
+            Self::Hours(amount) => write!(f, "{amount}h"),
+            Self::Days(amount) => write!(f, "{amount}d"),
+            Self::Date(date) => f.write_str(date),
+        }
+    }
+}
+
+impl FromStr for Since {
+    type Err = Error;
+
+    fn from_str(value: &str) -> Result<Self, Error> {
+        let invalid = || {
+            Error::Usage(format!(
+                "invalid --since value {value:?}: use <N>m, <N>h, <N>d or <N>w with N of at \
+                 least 1, or a date YYYY-MM-DD"
+            ))
+        };
+        let bytes = value.as_bytes();
+        let is_date = bytes.len() == 10
+            && bytes.iter().enumerate().all(|(index, byte)| match index {
+                4 | 7 => *byte == b'-',
+                _ => byte.is_ascii_digit(),
+            });
+        if is_date {
+            return Ok(Self::Date(value.to_owned()));
+        }
+        let split = value.len().saturating_sub(1);
+        let (amount, unit) = (value.get(..split), value.get(split..));
+        let amount = amount
+            .filter(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|digits| digits.parse::<u32>().ok())
+            .filter(|amount| *amount >= 1)
+            .map(u64::from)
+            .ok_or_else(invalid)?;
+        match unit {
+            Some("m") => Ok(Self::Minutes(amount)),
+            Some("h") => Ok(Self::Hours(amount)),
+            Some("d") => Ok(Self::Days(amount)),
+            Some("w") => Ok(Self::Days(amount * 7)),
+            _ => Err(invalid()),
+        }
+    }
+}
+
 /// The kind of a note.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -346,7 +408,7 @@ pub struct Note {
 #[cfg(test)]
 mod tests {
     use super::{
-        Action, NoteKind, Outcome, Status, normalize_title, validate_name, validate_priority,
+        Action, NoteKind, Outcome, Since, Status, normalize_title, validate_name, validate_priority,
     };
     use crate::error::Error;
 
@@ -515,5 +577,44 @@ mod tests {
             assert_eq!(validate_priority(priority).unwrap(), priority);
         }
         assert!(matches!(validate_priority(4), Err(Error::Usage(_))));
+    }
+
+    #[test]
+    fn since_parses_durations_and_dates() {
+        assert_eq!("30m".parse::<Since>().unwrap(), Since::Minutes(30));
+        assert_eq!("12h".parse::<Since>().unwrap(), Since::Hours(12));
+        assert_eq!("3d".parse::<Since>().unwrap(), Since::Days(3));
+        assert_eq!("2w".parse::<Since>().unwrap(), Since::Days(14));
+        assert_eq!(
+            "4294967295w".parse::<Since>().unwrap(),
+            Since::Days(4_294_967_295 * 7)
+        );
+        assert_eq!(
+            "2026-09-20".parse::<Since>().unwrap(),
+            Since::Date("2026-09-20".into())
+        );
+        for bad in [
+            "",
+            "3",
+            "d",
+            "0d",
+            "-3d",
+            "+3d",
+            "3D",
+            "3x",
+            "3 d",
+            "1.5d",
+            "4294967296d",
+            "2026-9-20",
+            "2026-09-2",
+            "26-09-20",
+            "2026/09/20",
+            "2026-09-20T00:00",
+        ] {
+            assert!(
+                matches!(bad.parse::<Since>(), Err(Error::Usage(_))),
+                "{bad:?}"
+            );
+        }
     }
 }

@@ -96,7 +96,8 @@ fn encode_line(value: &impl Serialize) -> Result<String, Error> {
     Ok(line)
 }
 
-/// Styles human text: the status word and headings, and only when colour is enabled.
+/// Styles human text: the status word, the priority, project names and headings, and
+/// only when colour is enabled.
 ///
 /// Only the styles added here are affected; stored text is always written as stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -124,6 +125,27 @@ impl Paint {
     /// A heading: a project name, a feature group, a task title line.
     fn heading(self, text: &str) -> String {
         self.styled(Style::new().bold(), text)
+    }
+
+    /// A project name: bold blue, apart from the plain bold feature headings.
+    fn project(self, name: &str) -> String {
+        self.styled(
+            Style::new().bold().fg_color(Some(AnsiColor::Blue.into())),
+            name,
+        )
+    }
+
+    /// The priority `P0`..`P3`: `P0` bold red, `P1` magenta, `P2` (the default) plain,
+    /// `P3` dimmed grey.
+    fn priority(self, priority: u8) -> String {
+        let text = format!("P{priority}");
+        let style = match priority {
+            0 => Style::new().bold().fg_color(Some(AnsiColor::Red.into())),
+            1 => AnsiColor::Magenta.on_default(),
+            3 => AnsiColor::BrightBlack.on_default(),
+            _ => return text,
+        };
+        self.styled(style, &text)
     }
 
     /// The status word.
@@ -195,69 +217,183 @@ fn plural(count: i64, noun: &str) -> String {
     }
 }
 
-fn project_line(project: &ProjectView) -> String {
+fn project_line(project: &ProjectView, paint: Paint) -> String {
     let archived = if project.archived { "  archived" } else { "" };
-    format!("{}  ({} open){archived}\n", project.name, project.open)
+    format!(
+        "{}  ({} open){archived}\n",
+        paint.project(&project.name),
+        project.open
+    )
 }
 
 /// The task id, the priority `P0`..`P3`, the padded status and the title, without
 /// indentation or line end.
 fn task_line(task: &TaskView, paint: Paint) -> String {
     format!(
-        "#{}  P{}  {}  {}",
+        "#{}  {}  {}  {}",
         task.id,
-        task.priority,
+        paint.priority(task.priority),
         paint.status_column(task.status),
         task.title
     )
 }
 
-/// `project` or `project/feature`.
-fn location(task: &TaskView) -> String {
-    task.feature.as_ref().map_or_else(
-        || task.project.clone(),
-        |feature| format!("{}/{feature}", task.project),
-    )
+/// `project` or `project/feature`, with the project name styled by `paint`.
+fn location(task: &TaskView, paint: Paint) -> String {
+    let project = paint.project(&task.project);
+    task.feature
+        .as_ref()
+        .map_or_else(|| project.clone(), |feature| format!("{project}/{feature}"))
 }
 
-/// The human form of `tk ls` and `tk find`, grouped by project and feature.
+/// The human form of `tk ls` and `tk find`: a table with a header row, one row per task
+/// in display order, or `no tasks`.
 ///
-/// A `name  (N open)` heading per project, a heading per feature with `-` for tasks
-/// without one, and one line per task; a blocked task ends with its latest reason in
-/// parentheses.
+/// The columns are `ID`, `PRI`, `STATUS`, `PROJECT` (only when the list is not scoped to
+/// one project), `FEATURE` (`-` for none), `AGE` and `TITLE`; a blocked task's title ends
+/// with its latest reason in parentheses. Every column but the last is padded to its
+/// widest cell, outside any style, and columns are separated by two spaces.
 pub fn task_list_text(list: &TaskList, paint: Paint) -> String {
-    let mut projects: Vec<&str> = list
-        .tasks
-        .iter()
-        .map(|task| task.project.as_str())
-        .collect();
-    if let Some(project) = &list.scope.project {
-        projects.push(&project.name);
-    }
-    projects.sort_unstable();
-    projects.dedup();
-    if projects.is_empty() {
+    if list.tasks.is_empty() {
         return "no tasks\n".to_owned();
     }
-    let mut text = String::new();
-    for project in projects {
-        let open = list.open.get(project).copied().unwrap_or(0);
-        let _ = writeln!(text, "{}  ({open} open)", paint.heading(project));
-        let mut group: Option<Option<&str>> = None;
-        for task in list.tasks.iter().filter(|task| task.project == project) {
-            let feature = task.feature.as_deref();
-            if group != Some(feature) {
-                let _ = writeln!(text, "  {}", paint.heading(feature.unwrap_or("-")));
-                group = Some(feature);
-            }
-            let _ = write!(text, "    {}", task_line(task, paint));
-            if let Some(reason) = list.reasons.get(&task.id) {
-                let _ = write!(text, "  ({reason})");
-            }
-            text.push('\n');
+    let with_project = list.scope.project.is_none();
+    let header = ["ID", "PRI", "STATUS", "PROJECT", "FEATURE", "AGE", "TITLE"]
+        .into_iter()
+        .filter(|name| with_project || *name != "PROJECT")
+        .map(|name| Cell::new(name, paint.heading(name)))
+        .collect();
+    let mut rows = vec![header];
+    for task in &list.tasks {
+        let priority = format!("P{}", task.priority);
+        let feature = task.feature.as_deref().unwrap_or("-");
+        let title = list.reasons.get(&task.id).map_or_else(
+            || task.title.clone(),
+            |reason| format!("{}  ({reason})", task.title),
+        );
+        let mut row = vec![
+            Cell::plain(format!("#{}", task.id)),
+            Cell::new(&priority, paint.priority(task.priority)),
+            Cell::new(task.status.as_str(), paint.status(task.status)),
+        ];
+        if with_project {
+            row.push(Cell::new(&task.project, paint.project(&task.project)));
+        }
+        row.push(Cell::plain(feature.to_owned()));
+        row.push(Cell::plain(age(&task.created_at, &list.now)));
+        row.push(Cell::plain(title));
+        rows.push(row);
+    }
+    table(&rows)
+}
+
+/// One table cell: its styled text and the width of its plain text.
+struct Cell {
+    text: String,
+    width: usize,
+}
+
+impl Cell {
+    /// A cell whose styled form is `styled` and whose plain form is `plain`.
+    fn new(plain: &str, styled: String) -> Self {
+        Self {
+            text: styled,
+            width: plain.chars().count(),
         }
     }
+
+    /// An unstyled cell.
+    fn plain(text: String) -> Self {
+        let width = text.chars().count();
+        Self { text, width }
+    }
+}
+
+/// Lays out rows of cells: every column but the last padded to its widest cell, two
+/// spaces between columns, one line per row.
+fn table(rows: &[Vec<Cell>]) -> String {
+    let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
+    let widths: Vec<usize> = (0..columns)
+        .map(|column| {
+            rows.iter()
+                .filter_map(|row| row.get(column))
+                .map(|cell| cell.width)
+                .max()
+                .unwrap_or(0)
+        })
+        .collect();
+    let mut text = String::new();
+    for row in rows {
+        for (column, cell) in row.iter().enumerate() {
+            text.push_str(&cell.text);
+            if column + 1 < row.len() {
+                let padding = widths[column].saturating_sub(cell.width) + 2;
+                text.push_str(&" ".repeat(padding));
+            }
+        }
+        text.push('\n');
+    }
     text
+}
+
+/// The time from `created_at` to `now`, both stored timestamps, in whole units rounded
+/// down: `<N>m` under an hour, `<N>h` under a day, `<N>d` otherwise; `0m` when `now` is
+/// earlier, and `-` when either is not a stored timestamp.
+fn age(created_at: &str, now: &str) -> String {
+    let (Some(created), Some(now)) = (epoch_seconds(created_at), epoch_seconds(now)) else {
+        return "-".to_owned();
+    };
+    let seconds = (now - created).max(0);
+    if seconds < 3600 {
+        format!("{}m", seconds / 60)
+    } else if seconds < 86_400 {
+        format!("{}h", seconds / 3600)
+    } else {
+        format!("{}d", seconds / 86_400)
+    }
+}
+
+/// Seconds since 1970-01-01T00:00:00Z of a stored timestamp `YYYY-MM-DDTHH:MM:SS.sssZ`,
+/// ignoring the fraction.
+fn epoch_seconds(timestamp: &str) -> Option<i64> {
+    let field = |range: std::ops::Range<usize>| -> Option<i64> {
+        let digits = timestamp.get(range)?;
+        if digits.bytes().all(|byte| byte.is_ascii_digit()) {
+            digits.parse().ok()
+        } else {
+            None
+        }
+    };
+    let bytes = timestamp.as_bytes();
+    let shape = bytes.len() == 24
+        && [
+            (4, b'-'),
+            (7, b'-'),
+            (10, b'T'),
+            (13, b':'),
+            (16, b':'),
+            (19, b'.'),
+            (23, b'Z'),
+        ]
+        .iter()
+        .all(|(index, byte)| bytes.get(*index) == Some(byte));
+    if !shape {
+        return None;
+    }
+    let (year, month, day) = (field(0..4)?, field(5..7)?, field(8..10)?);
+    let (hour, minute, second) = (field(11..13)?, field(14..16)?, field(17..19)?);
+    Some(days_from_civil(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second)
+}
+
+/// Days since 1970-01-01 of a proleptic Gregorian date (Howard Hinnant's `days_from_civil`).
+const fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year - era * 400;
+    let month_index = (month + 9) % 12;
+    let day_of_year = (153 * month_index + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era - 719_468
 }
 
 /// The human form of `tk brief`: the digest itself.
@@ -300,12 +436,12 @@ pub fn task_show_text(show: &TaskShow, paint: Paint) -> String {
     };
     let _ = write!(
         text,
-        "\nproject:  {}\nfeature:  {}\nstatus:   {}\npriority: P{}\ntags:     {tags}\n\
+        "\nproject:  {}\nfeature:  {}\nstatus:   {}\npriority: {}\ntags:     {tags}\n\
          created:  {} by {}\nupdated:  {}\n",
-        task.project,
+        paint.project(&task.project),
         task.feature.as_deref().unwrap_or("-"),
         paint.status(task.status),
-        task.priority,
+        paint.priority(task.priority),
         task.created_at,
         task.created_by,
         task.updated_at,
@@ -340,7 +476,7 @@ pub fn task_added_text(data: &TaskData) -> String {
     format!(
         "added #{} to {}: {}\n",
         data.task.id,
-        location(&data.task),
+        location(&data.task, Paint::new(false)),
         data.task.title
     )
 }
@@ -350,7 +486,7 @@ pub fn task_updated_text(data: &TaskData) -> String {
     format!(
         "updated #{} in {}: {}\n",
         data.task.id,
-        location(&data.task),
+        location(&data.task, Paint::new(false)),
         data.task.title
     )
 }
@@ -374,7 +510,7 @@ pub fn task_noted_text(data: &TaskData) -> String {
     format!(
         "noted #{} in {}: {}\n",
         data.task.id,
-        location(&data.task),
+        location(&data.task, Paint::new(false)),
         data.task.title
     )
 }
@@ -383,16 +519,19 @@ pub fn task_noted_text(data: &TaskData) -> String {
 pub fn next_task_text(next: &NextTask, paint: Paint) -> String {
     next.task.as_ref().map_or_else(
         || "no open task\n".to_owned(),
-        |task| format!("{}  ({})\n", task_line(task, paint), location(task)),
+        |task| format!("{}  ({})\n", task_line(task, paint), location(task, paint)),
     )
 }
 
 /// The human form of `project ls`: one `name  (N open)` line per project, or `no projects`.
-pub fn project_list_text(list: &ProjectList) -> String {
+pub fn project_list_text(list: &ProjectList, paint: Paint) -> String {
     if list.projects.is_empty() {
         return "no projects\n".to_owned();
     }
-    list.projects.iter().map(project_line).collect()
+    list.projects
+        .iter()
+        .map(|project| project_line(project, paint))
+        .collect()
 }
 
 /// The human form of `project add`.
@@ -406,10 +545,10 @@ pub fn project_updated_text(data: &ProjectData) -> String {
 }
 
 /// The human form of `project show`.
-pub fn project_show_text(show: &ProjectShow) -> String {
+pub fn project_show_text(show: &ProjectShow, paint: Paint) -> String {
     let project = &show.project;
     let counts = &show.counts;
-    let mut text = project_line(project);
+    let mut text = project_line(project, paint);
     let _ = writeln!(
         text,
         "path: {}\ndescription: {}",
@@ -460,18 +599,18 @@ fn feature_line(feature: &FeatureView) -> String {
 }
 
 /// The human form of `feature ls`: the features under a heading per project.
-pub fn feature_list_text(list: &FeatureList) -> String {
+pub fn feature_list_text(list: &FeatureList, paint: Paint) -> String {
     let mut text = String::new();
     let mut heading: Option<&str> = None;
     for feature in &list.features {
         if heading != Some(feature.project.as_str()) {
-            let _ = writeln!(text, "{}", feature.project);
+            let _ = writeln!(text, "{}", paint.project(&feature.project));
             heading = Some(&feature.project);
         }
         text.push_str(&feature_line(feature));
     }
     match (&list.scope.project, text.is_empty()) {
-        (Some(project), true) => format!("{}\n  no features\n", project.name),
+        (Some(project), true) => format!("{}\n  no features\n", paint.project(&project.name)),
         (None, true) => "no features\n".to_owned(),
         (_, false) => text,
     }
@@ -614,7 +753,7 @@ mod tests {
     #[test]
     fn project_list_text_names_one_project_per_line() {
         assert_eq!(
-            project_list_text(&ProjectList { projects: vec![] }),
+            project_list_text(&ProjectList { projects: vec![] }, super::Paint::new(false)),
             "no projects\n"
         );
         let project = |name: &str, archived: bool, open: i64| ProjectView {
@@ -629,7 +768,7 @@ mod tests {
             projects: vec![project("api", false, 1), project("old", true, 0)],
         };
         assert_eq!(
-            project_list_text(&list),
+            project_list_text(&list, super::Paint::new(false)),
             "api  (1 open)\nold  (0 open)  archived\n"
         );
     }
@@ -697,11 +836,14 @@ mod tests {
             ],
             open: std::iter::once(("web".to_owned(), 5)).collect(),
             reasons: std::iter::once((3, "waiting".to_owned())).collect(),
+            now: "2026-09-27T12:00:59.999Z".into(),
         };
         assert_eq!(
             super::task_list_text(&list, super::Paint::new(false)),
-            "web  (5 open)\n  api\n    #3  P1  blocked  task 3  (waiting)\n  auth\n    \
-             #1  P1  todo     task 1\n  -\n    #2  P1  doing    task 2\n"
+            "ID  PRI  STATUS   PROJECT  FEATURE  AGE  TITLE\n\
+             #3  P1   blocked  web      api      0m   task 3  (waiting)\n\
+             #1  P1   todo     web      auth     0m   task 1\n\
+             #2  P1   doing    web      -        0m   task 2\n"
         );
         let empty = TaskList {
             tasks: vec![],
@@ -765,5 +907,196 @@ mod tests {
             super::next_task_text(&none, super::Paint::new(false)),
             "no open task\n"
         );
+    }
+
+    #[test]
+    fn paint_styles_priorities_and_projects_only_when_colour_is_enabled() {
+        let plain = super::Paint::new(false);
+        let colour = super::Paint::new(true);
+        for priority in 0..=3 {
+            assert_eq!(plain.priority(priority), format!("P{priority}"));
+            assert!(colour.priority(priority).contains(&format!("P{priority}")));
+        }
+        // P2 is the default priority and stays plain; the others are styled apart.
+        assert_eq!(colour.priority(2), "P2");
+        let styled = [colour.priority(0), colour.priority(1), colour.priority(3)];
+        for (index, text) in styled.iter().enumerate() {
+            assert!(
+                text.starts_with("\x1b[") && text.ends_with("\x1b[0m"),
+                "{text:?}"
+            );
+            assert!(!styled[index + 1..].contains(text), "{text:?}");
+        }
+        assert_eq!(plain.project("web"), "web");
+        let project = colour.project("web");
+        assert!(project.starts_with("\x1b[") && project.ends_with("web\x1b[0m"));
+        assert_ne!(project, colour.heading("web"));
+    }
+
+    #[test]
+    fn coloured_views_style_priorities_and_project_names() {
+        use crate::command::FeatureView;
+        use crate::command::ProjectView;
+        use crate::command::feature::FeatureList;
+        use crate::command::project::{ProjectList, ProjectShow, StatusCounts};
+        use crate::command::task::{NextTask, TaskList, TaskShow};
+        use crate::model::Status;
+        use crate::scope::{Scope, Source};
+        let colour = super::Paint::new(true);
+        let web = colour.project("web");
+        let p1 = colour.priority(1);
+        let scope = Scope {
+            project: None,
+            source: Source::None,
+        };
+        let list = TaskList {
+            scope: scope.clone(),
+            tasks: vec![task(1, Some("auth"), Status::Todo)],
+            open: std::iter::once(("web".to_owned(), 1)).collect(),
+            reasons: std::collections::HashMap::new(),
+            now: "2026-09-27T12:00:00.000Z".into(),
+        };
+        let text = super::task_list_text(&list, colour);
+        assert!(text.contains(&format!("#1  {p1}   ")), "{text:?}");
+        assert!(text.contains(&format!("  {web}      auth")), "{text:?}");
+        let next = NextTask {
+            scope,
+            task: Some(task(2, Some("auth"), Status::Todo)),
+        };
+        let text = super::next_task_text(&next, colour);
+        assert!(text.contains(&format!("#2  {p1}  ")), "{text:?}");
+        assert!(text.ends_with(&format!("({web}/auth)\n")), "{text:?}");
+        let show = TaskShow {
+            task: task(3, None, Status::Todo),
+            notes: vec![],
+        };
+        let text = super::task_show_text(&show, colour);
+        assert!(text.contains(&format!("\nproject:  {web}\n")), "{text:?}");
+        assert!(text.contains(&format!("\npriority: {p1}\n")), "{text:?}");
+        let view = ProjectView {
+            name: "web".into(),
+            path: None,
+            description: String::new(),
+            archived: false,
+            created_at: "2026-09-27T12:00:00.000Z".into(),
+            open: 1,
+        };
+        let projects = ProjectList {
+            projects: vec![view.clone()],
+        };
+        assert_eq!(
+            super::project_list_text(&projects, colour),
+            format!("{web}  (1 open)\n")
+        );
+        let feature = FeatureView {
+            project: "web".into(),
+            name: "auth".into(),
+            open: 1,
+            total: 1,
+        };
+        let show = ProjectShow {
+            project: view,
+            features: vec![feature.clone()],
+            counts: StatusCounts {
+                todo: 1,
+                doing: 0,
+                blocked: 0,
+                done: 0,
+                dropped: 0,
+            },
+        };
+        assert!(super::project_show_text(&show, colour).starts_with(&format!("{web}  (1 open)\n")));
+        let features = FeatureList {
+            scope: Scope {
+                project: None,
+                source: Source::None,
+            },
+            features: vec![feature],
+        };
+        assert_eq!(
+            super::feature_list_text(&features, colour),
+            format!("{web}\n  auth  1 open / 1 total\n")
+        );
+    }
+
+    #[test]
+    fn age_is_whole_minutes_hours_or_days_since_creation() {
+        let created = "2026-09-27T12:00:00.000Z";
+        for (now, age) in [
+            ("2026-09-27T12:00:00.000Z", "0m"),
+            ("2026-09-27T12:00:59.999Z", "0m"),
+            ("2026-09-27T12:59:59.999Z", "59m"),
+            ("2026-09-27T13:00:00.000Z", "1h"),
+            ("2026-09-28T11:59:59.000Z", "23h"),
+            ("2026-09-28T12:00:00.000Z", "1d"),
+            ("2026-10-01T12:00:00.000Z", "4d"),
+            ("2027-03-01T12:00:00.000Z", "155d"),
+            ("2028-09-27T12:00:00.000Z", "731d"),
+            // A clock that went back shows no negative age.
+            ("2026-09-27T11:00:00.000Z", "0m"),
+        ] {
+            assert_eq!(super::age(created, now), age, "{now}");
+        }
+        assert_eq!(super::age("not a time", created), "-");
+        assert_eq!(super::age(created, "2026-09-27"), "-");
+    }
+
+    #[test]
+    fn task_table_aligns_ids_of_different_widths_and_drops_project_when_scoped() {
+        use crate::command::task::TaskList;
+        use crate::model::Project;
+        use crate::model::Status;
+        use crate::scope::{Scope, Source};
+        let mut nine = task(9, Some("keynet-relay-region"), Status::Todo);
+        nine.priority = 2;
+        let mut ten = task(10, Some("ci"), Status::Doing);
+        ten.created_at = "2026-09-20T12:00:00.000Z".into();
+        let web = Project {
+            id: 1,
+            name: "web".into(),
+            path: None,
+            description: String::new(),
+            archived: false,
+            created_at: "2026-09-27T12:00:00.000Z".into(),
+        };
+        let list = TaskList {
+            scope: Scope {
+                project: Some(web),
+                source: Source::Flag,
+            },
+            tasks: vec![nine, ten],
+            open: std::iter::once(("web".to_owned(), 2)).collect(),
+            reasons: std::collections::HashMap::new(),
+            now: "2026-09-27T14:00:00.000Z".into(),
+        };
+        let plain = super::task_list_text(&list, super::Paint::new(false));
+        assert_eq!(
+            plain,
+            "ID   PRI  STATUS  FEATURE              AGE  TITLE\n\
+             #9   P2   todo    keynet-relay-region  2h   task 9\n\
+             #10  P1   doing   ci                   7d   task 10\n"
+        );
+        // Colour wraps cells in styles and pads outside them, so the columns stay aligned.
+        let coloured = super::task_list_text(&list, super::Paint::new(true));
+        assert_ne!(coloured, plain);
+        assert_eq!(strip_styles(&coloured), plain);
+    }
+
+    /// Removes the `ESC [ ... m` sequences `Paint` adds.
+    fn strip_styles(text: &str) -> String {
+        let mut out = String::new();
+        let mut chars = text.chars();
+        while let Some(c) = chars.next() {
+            if c == '\x1b' {
+                for c in chars.by_ref() {
+                    if c == 'm' {
+                        break;
+                    }
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out
     }
 }

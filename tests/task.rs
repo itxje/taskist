@@ -358,22 +358,31 @@ fn grouped_fixture(sandbox: &Sandbox) -> [i64; 6] {
 }
 
 #[test]
-fn ls_groups_by_project_and_feature_in_the_documented_layout() {
+fn ls_is_a_table_ordered_by_project_and_feature_in_the_documented_layout() {
     let sandbox = Sandbox::new();
     let [sso, race, orders, readme, _, flags] = grouped_fixture(&sandbox);
-    let web = format!(
-        "web  (4 open)\n\
-         \x20 api\n\
-         \x20   #{orders}  P2  blocked  Paginate /orders  (waiting on schema)\n\
-         \x20 auth\n\
-         \x20   #{race}  P1  doing    Fix token refresh race\n\
-         \x20   #{sso}  P2  todo     Add SSO login\n\
-         \x20 -\n\
-         \x20   #{readme}  P3  todo     Clean up README\n"
+    // Scoped to one project: no PROJECT column.
+    assert_eq!(
+        human(&sandbox, &["ls", "-p", "web"]),
+        format!(
+            "ID  PRI  STATUS   FEATURE  AGE  TITLE\n\
+             #{orders}  P2   blocked  api      0m   Paginate /orders  (waiting on schema)\n\
+             #{race}  P1   doing    auth     0m   Fix token refresh race\n\
+             #{sso}  P2   todo     auth     0m   Add SSO login\n\
+             #{readme}  P3   todo     -        0m   Clean up README\n"
+        )
     );
-    assert_eq!(human(&sandbox, &["ls", "-p", "web"]), web);
-    let cli = format!("cli  (1 open)\n  -\n    #{flags}  P2  todo     Parse flags\n");
-    assert_eq!(human(&sandbox, &["ls"]), format!("{cli}{web}"));
+    assert_eq!(
+        human(&sandbox, &["ls"]),
+        format!(
+            "ID  PRI  STATUS   PROJECT  FEATURE  AGE  TITLE\n\
+             #{flags}  P2   todo     cli      -        0m   Parse flags\n\
+             #{orders}  P2   blocked  web      api      0m   Paginate /orders  (waiting on schema)\n\
+             #{race}  P1   doing    web      auth     0m   Fix token refresh race\n\
+             #{sso}  P2   todo     web      auth     0m   Add SSO login\n\
+             #{readme}  P3   todo     web      -        0m   Clean up README\n"
+        )
+    );
 
     // JSON lists the same tasks in the same order.
     let data = sandbox.ok(&["ls"]);
@@ -390,7 +399,7 @@ fn ls_of_an_empty_scope() {
     let sandbox = Sandbox::new();
     assert_eq!(human(&sandbox, &["ls"]), "no tasks\n");
     project(&sandbox, "web");
-    assert_eq!(human(&sandbox, &["ls", "-p", "web"]), "web  (0 open)\n");
+    assert_eq!(human(&sandbox, &["ls", "-p", "web"]), "no tasks\n");
 }
 
 #[test]
@@ -439,7 +448,8 @@ fn ls_filters_by_feature_status_tag_all_and_limit() {
     assert_eq!(
         human(&sandbox, &["ls", "-p", "web", "--limit", "1"]),
         format!(
-            "web  (5 open)\n  api\n    #{orders}  P2  blocked  Paginate /orders  (waiting on schema)\n"
+            "ID  PRI  STATUS   FEATURE  AGE  TITLE\n\
+             #{orders}  P2   blocked  api      0m   Paginate /orders  (waiting on schema)\n"
         )
     );
 
@@ -455,6 +465,102 @@ fn ls_filters_by_feature_status_tag_all_and_limit() {
     );
     let message = err_message(&json_run(&sandbox, &["ls", "-f", "nope"]), 3, "not_found");
     assert!(message.contains("nope"), "{message}");
+}
+
+/// Sets the creation time of a task directly, to an `SQLite` time expression.
+fn created(sandbox: &Sandbox, id: i64, time: &str) {
+    sandbox.sql(
+        &format!("UPDATE task SET created_at = {time} WHERE id = ?1"),
+        [id],
+    );
+}
+
+#[test]
+fn ls_since_keeps_tasks_created_within_a_recent_period() {
+    let sandbox = Sandbox::new();
+    project(&sandbox, "web");
+    let ago = |modifier: &str| format!("strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '{modifier}')");
+    let fresh = add(&sandbox, &["Fresh", "-p", "web"]);
+    let hours = add(&sandbox, &["Hours", "-p", "web"]);
+    let days = add(&sandbox, &["Days", "-p", "web"]);
+    let weeks = add(&sandbox, &["Weeks", "-p", "web"]);
+    let done = add(&sandbox, &["Done", "-p", "web", "--pri", "3"]);
+    created(&sandbox, hours, &ago("-150 minutes"));
+    created(&sandbox, days, &ago("-60 hours"));
+    created(&sandbox, weeks, &ago("-10 days"));
+    created(&sandbox, done, &ago("-1 minutes"));
+    sandbox.ok(&["done", &done.to_string()]);
+    let list =
+        |args: &[&str]| ids(&sandbox.ok(&[&["ls", "-p", "web"][..], args].concat())["tasks"]);
+
+    // Display order within a priority is oldest first.
+    assert_eq!(list(&[]), [weeks, days, hours, fresh]);
+    assert_eq!(list(&["--since", "30m"]), [fresh]);
+    assert_eq!(list(&["--since", "3h"]), [hours, fresh]);
+    assert_eq!(list(&["--since", "3d"]), [days, hours, fresh]);
+    assert_eq!(list(&["--since", "2w"]), [weeks, days, hours, fresh]);
+    // It combines with the other filters.
+    assert_eq!(list(&["--since", "30m", "--all"]), [fresh, done]);
+    assert_eq!(list(&["--since", "3d", "--limit", "1"]), [days]);
+
+    let text = human(&sandbox, &["ls", "-p", "web", "--since", "3d"]);
+    assert_eq!(
+        text,
+        format!(
+            "ID  PRI  STATUS  FEATURE  AGE  TITLE\n\
+             #{days}  P2   todo    -        2d   Days\n\
+             #{hours}  P2   todo    -        2h   Hours\n\
+             #{fresh}  P2   todo    -        0m   Fresh\n"
+        )
+    );
+}
+
+#[test]
+fn ls_since_a_date_starts_at_local_midnight() {
+    let sandbox = Sandbox::new();
+    project(&sandbox, "web");
+    let before = add(&sandbox, &["Before", "-p", "web"]);
+    let east = add(&sandbox, &["East", "-p", "web"]);
+    let utc = add(&sandbox, &["Utc", "-p", "web"]);
+    created(&sandbox, before, "'2026-09-19T15:59:59.999Z'");
+    created(&sandbox, east, "'2026-09-19T16:00:00.000Z'");
+    created(&sandbox, utc, "'2026-09-20T00:00:00.000Z'");
+    let list = |tz: &str| {
+        let output = sandbox
+            .tk()
+            .env("TZ", tz)
+            .args(["--json", "ls", "-p", "web", "--since", "2026-09-20"])
+            .output()
+            .expect("run tk");
+        ids(&ok_data(&output)["tasks"])
+    };
+    // Midnight at UTC+8 is 16:00 UTC the day before.
+    assert_eq!(list("XXX-8"), [east, utc]);
+    assert_eq!(list("UTC0"), [utc]);
+}
+
+#[test]
+fn ls_since_refuses_malformed_values() {
+    let sandbox = Sandbox::new();
+    project(&sandbox, "web");
+    for value in [
+        "3",
+        "0d",
+        "3x",
+        "-3d",
+        "2026-9-20",
+        "2026-02-30",
+        "2026-13-01",
+        "4294967296d",
+        "4294967295w",
+    ] {
+        let message = err_message(
+            &json_run(&sandbox, &["ls", "-p", "web", "--since", value]),
+            2,
+            "usage",
+        );
+        assert!(message.contains("--since"), "{value}: {message}");
+    }
 }
 
 // ---------------------------------------------------------------- edit
@@ -764,7 +870,9 @@ fn find_matches_title_body_and_notes_case_insensitively() {
     assert_eq!(data["scope"], json!({"project": "api", "source": "flag"}));
     assert_eq!(
         human(&sandbox, &["find", "token", "-p", "api"]),
-        format!("api  (1 open)\n  -\n    #{note}  P2  todo     Third\n")
+        format!(
+            "ID  PRI  STATUS  FEATURE  AGE  TITLE\n#{note}  P2   todo    -        0m   Third\n"
+        )
     );
 }
 
@@ -900,7 +1008,9 @@ fn escape_sequences_in_stored_text_are_printed_as_stored() {
     let text = human(&sandbox, &["ls", "-p", "web"]);
     assert_eq!(
         text,
-        format!("web  (1 open)\n  -\n    #{id}  P2  todo     {title}\n")
+        format!(
+            "ID  PRI  STATUS  FEATURE  AGE  TITLE\n#{id}  P2   todo    -        0m   {title}\n"
+        )
     );
     // JSON escapes the control character instead.
     let output = json_run(&sandbox, &["show", &id.to_string()]);

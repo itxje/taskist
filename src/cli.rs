@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
-use crate::model::Status;
+use crate::model::{Since, Status};
 use crate::scope::Request;
 
 /// Track unfinished and follow-up work across many projects.
@@ -85,6 +85,10 @@ pub enum Command {
         /// Show at most this many tasks, in display order.
         #[arg(long, value_name = "N", allow_hyphen_values = true)]
         limit: Option<usize>,
+        /// Only tasks created in the last <N>m, <N>h, <N>d or <N>w, or since local midnight
+        /// of a date YYYY-MM-DD.
+        #[arg(long, value_name = "WHEN", value_parser = parse_since, allow_hyphen_values = true)]
+        since: Option<Since>,
     },
     /// Show a task with all its notes.
     Show {
@@ -321,6 +325,10 @@ impl ListScope {
 }
 
 fn parse_status(value: &str) -> Result<Status, crate::error::Error> {
+    value.parse()
+}
+
+fn parse_since(value: &str) -> Result<Since, crate::error::Error> {
     value.parse()
 }
 

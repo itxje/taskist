@@ -63,3 +63,11 @@ Task `20260927-1728-ci-and-release` completed: CI passes on `main` (quality gate
 ## 2026-09-27 18:00 [progress]
 
 Task `20260927-1800-release-raw-binaries` completed: a release publishes the static binaries themselves as `tk-x86_64-unknown-linux-musl` and `tk-aarch64-unknown-linux-musl` with `SHA256SUMS`, instead of `tar.gz` archives, so `releases/latest/download/tk-<target>` always names the newest build. Release `v0.1.0` now carries these assets (the binaries extracted unchanged from its archives, which were removed).
+
+## 2026-09-27 20:10 [progress]
+
+Task `20260927-1955-colour-priority-project` completed: human output styles the priority (`P0` bold red, `P1` magenta, `P2` plain, `P3` dimmed grey) in task lines and `tk show`, and project names in bold blue in `tk ls`, `tk find`, `tk next`, `tk show`, `tk project ls`, `tk project show` and `tk feature ls`, so projects stand apart from the plain bold feature headings. The colour rules are unchanged; uncoloured and JSON output are byte-for-byte the same as before.
+
+## 2026-09-27 20:45 [progress]
+
+Task `20260927-2005-table-task-list` completed: `tk ls` and `tk find` print a borderless table with the columns `ID`, `PRI`, `STATUS`, `PROJECT` (left out when the list is scoped to one project), `FEATURE`, `AGE` and `TITLE`, each padded to its widest cell outside any colour, so ids of different widths no longer shift the columns; the per-project `(N open)` headings are gone (`tk project ls` keeps the counts). `AGE` is the time since creation in whole minutes, hours or days. `tk ls --since WHEN` keeps tasks created in the last `<N>m`, `<N>h`, `<N>d` or `<N>w`, or since local midnight of a date `YYYY-MM-DD`; the cutoff is computed by SQLite, and malformed or unrepresentable values are `usage` errors. JSON output is unchanged apart from the new filter.

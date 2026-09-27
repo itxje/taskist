@@ -246,6 +246,6 @@ fn ls_lists_the_open_tasks_of_the_scope() {
         .assert()
         .code(0)
         .stdout(format!(
-            "web  (1 open)\n  auth\n    #{open}  P2  doing    seeded\n"
+            "ID  PRI  STATUS  FEATURE  AGE  TITLE\n#{open}  P2   doing   auth     0m   seeded\n"
         ));
 }

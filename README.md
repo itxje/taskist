@@ -52,7 +52,8 @@ cd ~/src/web
 tk project add web --path .          # commands run here now target `web`
 tk add "Fix login redirect" -f auth --pri 1 --tag bug
 tk add "Write onboarding docs" -f docs
-tk ls                                # open tasks, grouped by feature
+tk ls                                # open tasks as a table
+tk ls --since 3d                     # created in the last three days
 tk start 1
 tk done 1 "Redirect now keeps the target page"
 tk brief                             # markdown digest of open work
@@ -85,7 +86,7 @@ commands without a scope, or with `--all-projects`, cover every non-archived pro
 | Command | Purpose |
 |---|---|
 | `tk add TITLE [-p P] [-f F] [--pri N] [--tag T]... [--body TEXT\|-]` | Create a task. |
-| `tk ls [-p P] [--all-projects] [-f F] [--status S,S] [--tag T] [--all] [--limit N]` | List tasks. |
+| `tk ls [-p P] [--all-projects] [-f F] [--status S,S] [--tag T] [--all] [--limit N] [--since WHEN]` | List tasks; `WHEN` is `<N>m`, `<N>h`, `<N>d`, `<N>w` or `YYYY-MM-DD`. |
 | `tk show ID` | Show a task and its notes. |
 | `tk edit ID [--title T] [--body TEXT\|-] [--pri N] [-f F \| --no-feature] [--tag [+\|-]T]... [-p P]` | Change a task. |
 | `tk start ID...`, `tk block ID REASON`, `tk done ID... [NOTE]`, `tk drop ID REASON`, `tk reopen ID...` | Change status. |

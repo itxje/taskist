@@ -9,7 +9,7 @@ use super::{Tally, TaskView, listed_projects, open_store, project_named};
 use crate::env::Env;
 use crate::error::Error;
 use crate::model::{
-    DEFAULT_PRIORITY, NoteKind, Project, Status, Task, normalize_title, validate_name,
+    DEFAULT_PRIORITY, NoteKind, Project, Since, Status, Task, normalize_title, validate_name,
     validate_priority,
 };
 use crate::scope::{self, Request, Scope};
@@ -60,6 +60,9 @@ pub struct TaskList {
     /// The latest `blocked` note of every listed blocked task that has one, for the human text.
     #[serde(skip)]
     pub reasons: HashMap<i64, String>,
+    /// The time the list was read, for the ages in the human text.
+    #[serde(skip)]
+    pub now: String,
 }
 
 /// `next` data: `{scope, task}`, with no task when the scope has no candidate.
@@ -118,6 +121,8 @@ pub struct ListFilter<'a> {
     pub all: bool,
     /// At most this many tasks, in display order.
     pub limit: Option<usize>,
+    /// Only tasks created at or after this time.
+    pub since: Option<&'a Since>,
 }
 
 /// Resolves a body argument: `-` reads stdin to its end, anything else is the text itself.
@@ -545,6 +550,7 @@ fn task_list(
         tasks,
         open,
         reasons,
+        now: tx.now()?,
     })
 }
 
@@ -561,6 +567,17 @@ pub fn list(env: &Env, request: Request<'_>, filter: ListFilter<'_>) -> Result<T
         let scope = scope::resolve(tx, env, &target)?;
         let covered = covered(tx, &scope)?;
         check_feature(&scope, &covered, filter.feature)?;
+        let cutoff = filter
+            .since
+            .map(|since| {
+                tx.cutoff(since)?.ok_or_else(|| {
+                    Error::Usage(format!(
+                        "--since {since} is not a date in the calendar or reaches before \
+                         the year 0000"
+                    ))
+                })
+            })
+            .transpose()?;
         let tasks = collect(tx, &covered, |task| {
             let status = if filter.statuses.is_empty() {
                 filter.all || task.status.is_open()
@@ -573,7 +590,10 @@ pub fn list(env: &Env, request: Request<'_>, filter: ListFilter<'_>) -> Result<T
             let tag = filter
                 .tag
                 .is_none_or(|tag| task.tags.iter().any(|own| own == tag));
-            Ok(status && feature && tag)
+            let recent = cutoff
+                .as_deref()
+                .is_none_or(|cutoff| task.created_at.as_str() >= cutoff);
+            Ok(status && feature && tag && recent)
         })?;
         task_list(tx, scope, &covered, tasks, filter.limit)
     })

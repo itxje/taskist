@@ -106,6 +106,7 @@ fn run_command(format: Format, env: &Env, by: Option<&str>, command: Command) ->
             tag,
             all,
             limit,
+            since,
         } => output::emit(
             format,
             task::list(
@@ -117,6 +118,7 @@ fn run_command(format: Format, env: &Env, by: Option<&str>, command: Command) ->
                     tag: tag.as_deref(),
                     all,
                     limit,
+                    since: since.as_ref(),
                 },
             ),
             |list| output::task_list_text(list, paint),
@@ -162,8 +164,8 @@ fn run_command(format: Format, env: &Env, by: Option<&str>, command: Command) ->
             |list| output::task_list_text(list, paint),
         ),
         Command::Exchange(command) => run_exchange(format, env, by, command),
-        Command::Project { command } => run_project(format, env, command),
-        Command::Feature { command } => run_feature(format, env, command),
+        Command::Project { command } => run_project(format, paint, env, command),
+        Command::Feature { command } => run_feature(format, paint, env, command),
         Command::Guide => output::emit(format, Ok(guide::guide()), output::document_text),
         Command::Completions { shell } => {
             output::emit(format, guide::completions(shell), output::document_text)
@@ -251,7 +253,7 @@ fn run_exchange(format: Format, env: &Env, by: Option<&str>, command: ExchangeCo
     }
 }
 
-fn run_project(format: Format, env: &Env, command: ProjectCommand) -> u8 {
+fn run_project(format: Format, paint: Paint, env: &Env, command: ProjectCommand) -> u8 {
     use command::project;
     match command {
         ProjectCommand::Add { name, path, desc } => output::emit(
@@ -259,12 +261,12 @@ fn run_project(format: Format, env: &Env, command: ProjectCommand) -> u8 {
             project::add(env, &name, path.as_deref(), desc.as_deref()),
             output::project_added_text,
         ),
-        ProjectCommand::Ls { all } => {
-            output::emit(format, project::list(env, all), output::project_list_text)
-        }
-        ProjectCommand::Show { name } => {
-            output::emit(format, project::show(env, &name), output::project_show_text)
-        }
+        ProjectCommand::Ls { all } => output::emit(format, project::list(env, all), |list| {
+            output::project_list_text(list, paint)
+        }),
+        ProjectCommand::Show { name } => output::emit(format, project::show(env, &name), |show| {
+            output::project_show_text(show, paint)
+        }),
         ProjectCommand::Edit {
             name,
             new_name,
@@ -298,14 +300,14 @@ fn run_project(format: Format, env: &Env, command: ProjectCommand) -> u8 {
     }
 }
 
-fn run_feature(format: Format, env: &Env, command: FeatureCommand) -> u8 {
+fn run_feature(format: Format, paint: Paint, env: &Env, command: FeatureCommand) -> u8 {
     use command::feature;
     match command {
-        FeatureCommand::Ls { scope } => output::emit(
-            format,
-            feature::list(env, scope.request()),
-            output::feature_list_text,
-        ),
+        FeatureCommand::Ls { scope } => {
+            output::emit(format, feature::list(env, scope.request()), |list| {
+                output::feature_list_text(list, paint)
+            })
+        }
         FeatureCommand::Mv { old, new, scope } => output::emit(
             format,
             feature::rename(env, &old, &new, scope.request()),

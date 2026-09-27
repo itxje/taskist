@@ -5,7 +5,7 @@ use rusqlite::{OptionalExtension, Row, params};
 
 use super::Tx;
 use crate::error::Error;
-use crate::model::{Feature, Note, NoteKind, Project, Status, Task};
+use crate::model::{Feature, Note, NoteKind, Project, Since, Status, Task};
 
 /// The current time as `YYYY-MM-DDTHH:MM:SS.sssZ`, inside SQL text.
 macro_rules! now {
@@ -164,6 +164,25 @@ impl Tx<'_> {
         Ok(self
             .tx
             .query_row(concat!("SELECT ", now!()), [], |row| row.get(0))?)
+    }
+
+    /// The earliest creation time `since` keeps, in the format of every stored timestamp,
+    /// so it compares with them as text; `None` when `SQLite` cannot represent it or a date
+    /// does not exist in the calendar. A date is read as local midnight through the
+    /// `utc` modifier of `SQLite`, which follows the time zone of the process.
+    pub fn cutoff(&self, since: &Since) -> Result<Option<String>, Error> {
+        const AGO: &str = "SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?1)";
+        let (sql, value) = match since {
+            Since::Minutes(amount) => (AGO, format!("-{amount} minutes")),
+            Since::Hours(amount) => (AGO, format!("-{amount} hours")),
+            Since::Days(amount) => (AGO, format!("-{amount} days")),
+            Since::Date(date) => (
+                "SELECT CASE WHEN date(?1) IS ?1 \
+                 THEN strftime('%Y-%m-%dT%H:%M:%fZ', ?1, 'utc') END",
+                date.clone(),
+            ),
+        };
+        Ok(self.tx.query_row(sql, [value], |row| row.get(0))?)
     }
 
     /// Creates a project.

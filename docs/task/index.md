@@ -46,3 +46,5 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**20260927-2000-empty-values-coverage-map Document which empty environment values count as unset and name the coverage measurement in the acceptance map**](20260927-2000-empty-values-coverage-map.md) `P1`
 - [x] [**20260927-1728-ci-and-release Add GitHub CI and static musl release binaries**](20260927-1728-ci-and-release.md) `P1`
 - [x] [**20260927-1800-release-raw-binaries Publish release binaries without archives**](20260927-1800-release-raw-binaries.md) `P1`
+- [x] [**20260927-1955-colour-priority-project Colour priorities and project names in human output**](20260927-1955-colour-priority-project.md) `P2`
+- [x] [**20260927-2005-table-task-list Render task lists as an aligned table**](20260927-2005-table-task-list.md) `P2`
