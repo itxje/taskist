@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use crate::error::Error;
@@ -13,6 +14,18 @@ enum CurrentDir {
     Given(PathBuf),
     /// Read from the process each time it is needed.
     Read(fn() -> std::io::Result<PathBuf>),
+    /// Resolved by a forwarding client: its canonical current directory, or the message of
+    /// the error it met reading or resolving it.
+    Forwarded(Result<PathBuf, String>),
+}
+
+/// Where stdin comes from.
+#[derive(Debug, Clone)]
+enum Input {
+    /// The process stdin.
+    Process,
+    /// The bytes a forwarding client sent: its stdin, or the file `tk import` names.
+    Forwarded(Vec<u8>),
 }
 
 /// Environment variables, current directory and terminal state of one invocation.
@@ -24,6 +37,7 @@ pub struct Env {
     vars: BTreeMap<OsString, OsString>,
     current_dir: CurrentDir,
     stdout_is_terminal: bool,
+    input: Input,
 }
 
 impl Env {
@@ -55,6 +69,7 @@ impl Env {
             vars: vars.into_iter().collect(),
             current_dir: CurrentDir::Given(current_dir),
             stdout_is_terminal,
+            input: Input::Process,
         }
     }
 
@@ -70,7 +85,29 @@ impl Env {
             vars: vars.into_iter().collect(),
             current_dir: CurrentDir::Read(read_current_dir),
             stdout_is_terminal,
+            input: Input::Process,
         }
+    }
+
+    /// Builds the environment of a forwarded command: `vars`, the client's resolved current
+    /// directory, its terminal state, and the bytes it sent in place of stdin.
+    pub(crate) const fn forwarded(
+        vars: BTreeMap<OsString, OsString>,
+        current_dir: Result<PathBuf, String>,
+        stdout_is_terminal: bool,
+        input: Vec<u8>,
+    ) -> Self {
+        Self {
+            vars,
+            current_dir: CurrentDir::Forwarded(current_dir),
+            stdout_is_terminal,
+            input: Input::Forwarded(input),
+        }
+    }
+
+    /// Every captured variable.
+    pub(crate) const fn vars(&self) -> &BTreeMap<OsString, OsString> {
+        &self.vars
     }
 
     /// The value of a variable, if set.
@@ -81,10 +118,45 @@ impl Env {
     /// The current directory; an `internal` error when it cannot be read.
     pub fn current_dir(&self) -> Result<PathBuf, Error> {
         match &self.current_dir {
-            CurrentDir::Given(dir) => Ok(dir.clone()),
+            CurrentDir::Given(dir) | CurrentDir::Forwarded(Ok(dir)) => Ok(dir.clone()),
             CurrentDir::Read(read) => read().map_err(|err| {
                 Error::Internal(format!("cannot read the current directory: {err}"))
             }),
+            CurrentDir::Forwarded(Err(message)) => Err(Error::Internal(message.clone())),
+        }
+    }
+
+    /// The current directory with symbolic links resolved; an `internal` error when it
+    /// cannot be read or resolved. A forwarded directory was resolved by the client, on the
+    /// machine it names.
+    pub fn canonical_current_dir(&self) -> Result<PathBuf, Error> {
+        if let CurrentDir::Forwarded(_) = self.current_dir {
+            return self.current_dir();
+        }
+        let current_dir = self.current_dir()?;
+        std::fs::canonicalize(&current_dir).map_err(|err| {
+            Error::Internal(format!(
+                "cannot resolve the current directory {}: {err}",
+                current_dir.display()
+            ))
+        })
+    }
+
+    /// Whether this environment belongs to a command forwarded by a client.
+    pub const fn is_forwarded(&self) -> bool {
+        matches!(self.input, Input::Forwarded(_))
+    }
+
+    /// Everything on stdin: the process stdin read to its end, or the bytes a forwarding
+    /// client sent.
+    pub fn read_stdin(&self) -> std::io::Result<Vec<u8>> {
+        match &self.input {
+            Input::Process => {
+                let mut bytes = Vec::new();
+                std::io::stdin().lock().read_to_end(&mut bytes)?;
+                Ok(bytes)
+            }
+            Input::Forwarded(bytes) => Ok(bytes.clone()),
         }
     }
 

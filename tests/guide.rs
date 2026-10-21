@@ -89,6 +89,8 @@ fn every_error() -> Vec<Error> {
         Error::NotFound(String::new()),
         Error::Conflict(String::new()),
         Error::InvalidTransition(String::new()),
+        Error::Unreachable(String::new()),
+        Error::Unauthorized(String::new()),
     ];
     for error in &all {
         match error {
@@ -97,7 +99,9 @@ fn every_error() -> Vec<Error> {
             | Error::Usage(_)
             | Error::NotFound(_)
             | Error::Conflict(_)
-            | Error::InvalidTransition(_) => {}
+            | Error::InvalidTransition(_)
+            | Error::Unreachable(_)
+            | Error::Unauthorized(_) => {}
         }
     }
     all
@@ -271,7 +275,7 @@ fn the_guide_names_every_subcommand_variable_error_code_and_exit_code() {
     exits.push(0);
     exits.sort_unstable();
     exits.dedup();
-    assert_eq!(exits, [0, 1, 2, 3, 4]);
+    assert_eq!(exits, [0, 1, 2, 3, 4, 5, 6]);
     for exit in exits {
         let row = format!("| {exit} | ");
         assert!(

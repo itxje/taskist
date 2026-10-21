@@ -1,5 +1,9 @@
 //! Rendering of results and errors, and the only place that writes to stdout or stderr.
+//!
+//! A command run by `tk serve` writes into a per-thread [`capture`] instead, which the server
+//! sends back to the client.
 
+use std::cell::RefCell;
 use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::io::Write;
@@ -641,9 +645,58 @@ pub fn feature_move_text(data: &FeatureMove) -> String {
 /// Writes an error to stderr and returns its exit code.
 pub fn emit_failure(format: Format, error: &Error) -> u8 {
     // A failure to report the error has nowhere left to go; the exit code still tells.
-    let _ =
-        render_failure(format, error).and_then(|text| write_all(std::io::stderr().lock(), &text));
+    let _ = render_failure(format, error).and_then(|text| write_stderr(&text));
     error.exit_code()
+}
+
+/// Writes the streams of a forwarded command as the server returned them, and returns its
+/// exit code.
+pub fn emit_forwarded(stdout: &str, stderr: &str, exit: u8) -> u8 {
+    match write_stdout(stdout) {
+        Ok(()) => {
+            let _ = write_stderr(stderr);
+            exit
+        }
+        Err(err) => emit_failure(Format::Text, &err),
+    }
+}
+
+/// Writes one line of the `tk serve` log to the process stderr, never to a capture.
+pub fn log(line: &str) {
+    let _ = write_all(std::io::stderr().lock(), &format!("tk serve: {line}\n"));
+}
+
+/// What one command wrote, when run under [`capture`].
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Captured {
+    /// Everything written to stdout.
+    pub stdout: String,
+    /// Everything written to stderr.
+    pub stderr: String,
+}
+
+thread_local! {
+    static CAPTURE: RefCell<Option<Captured>> = const { RefCell::new(None) };
+}
+
+/// Runs `run` with everything this thread writes to stdout and stderr collected instead of
+/// written, and returns its exit code with what it wrote.
+pub fn capture(run: impl FnOnce() -> u8) -> (u8, Captured) {
+    CAPTURE.with_borrow_mut(|capture| *capture = Some(Captured::default()));
+    let exit = run();
+    let captured = CAPTURE.with_borrow_mut(Option::take).unwrap_or_default();
+    (exit, captured)
+}
+
+/// Appends `text` to this thread's capture, if there is one, through `select`; `false` when
+/// nothing is capturing.
+fn captured(text: &str, select: fn(&mut Captured) -> &mut String) -> bool {
+    CAPTURE.with_borrow_mut(|capture| {
+        capture
+            .as_mut()
+            .map(|capture| select(capture).push_str(text))
+            .is_some()
+    })
 }
 
 /// Writes to stdout through `anstream`, which passes the text through as it is: the
@@ -651,10 +704,20 @@ pub fn emit_failure(format: Format, error: &Error) -> u8 {
 /// which applies the automatic rules of `anstream` to the captured environment, enables
 /// colour, and escape sequences in stored text are printed as stored.
 fn write_stdout(text: &str) -> Result<(), Error> {
+    if captured(text, |capture| &mut capture.stdout) {
+        return Ok(());
+    }
     write_all(
         anstream::AutoStream::new(std::io::stdout().lock(), anstream::ColorChoice::Always),
         text,
     )
+}
+
+fn write_stderr(text: &str) -> Result<(), Error> {
+    if captured(text, |capture| &mut capture.stderr) {
+        return Ok(());
+    }
+    write_all(std::io::stderr().lock(), text)
 }
 
 fn write_all(mut stream: impl Write, text: &str) -> Result<(), Error> {

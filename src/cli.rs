@@ -182,6 +182,12 @@ pub enum Command {
         /// The shell.
         shell: clap_complete_command::Shell,
     },
+    /// Serve this machine's database to `tk` on other machines; needs `TASKIST_TOKEN`.
+    Serve {
+        /// The address to listen on, such as 0.0.0.0:3000.
+        #[arg(long, value_name = "ADDR")]
+        listen: String,
+    },
 }
 
 /// The commands that summarize, export or import tasks.

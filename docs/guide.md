@@ -22,9 +22,11 @@ examples below run in order against an empty database, from a directory that bec
 | `CLICOLOR` | `0` turns colour off; any other value allows it on a terminal. |
 | `TERM` | Colour on a terminal needs `TERM` set to anything but `dumb`, or `CLICOLOR`, or `CI`. |
 | `CI` | Set: colour is allowed on a terminal. |
+| `TASKIST_SERVER` | `HOST:PORT` of a `tk serve`: commands run there, against its database (see Remote mode). |
+| `TASKIST_TOKEN` | The token a `tk serve` requires, and the one a client sends to it. |
 
 An empty `TASKIST_DB`, `XDG_DATA_HOME`, `HOME`, `TASKIST_PROJECT`, `TASKIST_ACTOR`,
-`USER`, `NO_COLOR` or `CLICOLOR_FORCE` counts as unset. An empty `CLICOLOR`, `TERM` or `CI`
+`USER`, `NO_COLOR`, `CLICOLOR_FORCE`, `TASKIST_SERVER` or `TASKIST_TOKEN` counts as unset. An empty `CLICOLOR`, `TERM` or `CI`
 counts as set. An empty `TASKIST_FORMAT` is a `usage` error, like any value other than
 `json` or `text`. With no usable database location, commands that need the database fail
 with `usage`. The database is created on first use. To back it up, copy the file;
@@ -207,6 +209,33 @@ tk guide --json
 tk completions bash > tk.bash
 ```
 
+## Remote mode
+
+`tk serve --listen ADDR` serves this machine's database to `tk` on other machines until it is
+stopped. It requires `TASKIST_TOKEN` and fails with `usage` without it, and logs one line per
+command to stderr (peer, command name, exit code, duration; never the token or any text of the
+command). For example `TASKIST_TOKEN=... tk serve --listen 0.0.0.0:3000` on the machine that
+holds the database.
+
+```sh
+tk serve --help
+```
+
+With `TASKIST_SERVER=HOST:PORT` and the same `TASKIST_TOKEN` set, `tk` sends every command to
+that server and prints what the server's run printed, with its exit code. These stay local:
+argument errors, `--help`, `--version`, `tk guide` and `tk completions`. The client sends its
+arguments, its current directory (for directory scope, so project paths must mean the same on
+both machines), whether its stdout is a terminal, its `TASKIST_ACTOR`, `TASKIST_PROJECT`,
+`TASKIST_FORMAT`, `USER` and colour variables, and the input the command reads: a `-` body
+from stdin, or the file of `tk import`, read on the client. The database location is the
+server's own; the client's `TASKIST_DB`, `XDG_DATA_HOME` and `HOME` are never sent.
+
+A client with `TASKIST_SERVER` set and no `TASKIST_TOKEN` fails with `usage`; an unreachable
+server or a lost reply fails with `unreachable` (when the reply is lost, the command may have
+run); a refused token fails with `unauthorized`. There is no local fallback. The connection is
+plain TCP with a shared token and no encryption: serve only on a private network. A request,
+with its input, and a reply are at most 16 MiB each.
+
 ## Output
 
 Human text is the default. `--json` or `TASKIST_FORMAT=json` selects JSON:
@@ -275,6 +304,8 @@ null and `source` one of `flag`, `env`, `cwd` and `none`.
 | `not_found` | 3 | unknown task id, project or feature |
 | `conflict` | 4 | duplicate name or path, archived project, non-empty project removal |
 | `invalid_transition` | 4 | status change the transition table forbids |
+| `unreachable` | 5 | the `TASKIST_SERVER` server cannot be reached, or its reply was lost or broken |
+| `unauthorized` | 6 | the server refused `TASKIST_TOKEN` |
 
 ## Exit codes
 
@@ -285,6 +316,8 @@ null and `source` one of `flag`, `env`, `cwd` and `none`.
 | 2 | `usage` |
 | 3 | `not_found` |
 | 4 | `conflict`, `invalid_transition` |
+| 5 | `unreachable` |
+| 6 | `unauthorized` |
 
 ## Concurrency
 

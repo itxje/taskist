@@ -10,6 +10,7 @@ pub mod error;
 pub mod guide;
 pub mod model;
 pub mod output;
+pub mod remote;
 pub mod scope;
 pub mod store;
 
@@ -28,7 +29,9 @@ use crate::output::{Format, Paint};
 
 /// Runs one invocation of `tk` and returns the process exit code.
 ///
-/// `args` are the raw process arguments, program name first.
+/// `args` are the raw process arguments, program name first. When `TASKIST_SERVER` is set, a
+/// command that parses is forwarded to that server, except `guide` and `completions`; argument
+/// errors, `--help` and `--version` stay local.
 ///
 /// ```
 /// use std::ffi::OsString;
@@ -53,6 +56,18 @@ use crate::output::{Format, Paint};
 /// # Ok::<(), std::io::Error>(())
 /// ```
 pub fn run(args: &[OsString], env: &Env) -> u8 {
+    if let Some(server) = env.var("TASKIST_SERVER").filter(|value| !value.is_empty())
+        && let Ok(cli) = Cli::try_parse_from(args)
+        && !matches!(cli.command, Command::Guide | Command::Completions { .. })
+        && let Ok(format) = Format::select(cli.json, env)
+    {
+        return remote::forward(args, env, server, format, &cli.command);
+    }
+    run_here(args, env)
+}
+
+/// Runs one invocation of `tk` on this machine, never forwarding it.
+pub(crate) fn run_here(args: &[OsString], env: &Env) -> u8 {
     let cli = match Cli::try_parse_from(args) {
         Ok(cli) => cli,
         Err(err) => {
@@ -170,6 +185,15 @@ fn run_command(format: Format, env: &Env, by: Option<&str>, command: Command) ->
         Command::Completions { shell } => {
             output::emit(format, guide::completions(shell), output::document_text)
         }
+        Command::Serve { listen } => serve(format, env, &listen),
+    }
+}
+
+/// `tk serve`, which writes only when it cannot start.
+fn serve(format: Format, env: &Env, listen: &str) -> u8 {
+    match remote::serve(env, listen) {
+        Ok(()) => 0,
+        Err(err) => output::emit_failure(format, &err),
     }
 }
 

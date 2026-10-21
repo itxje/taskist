@@ -1,7 +1,6 @@
 //! The task commands: `add`, `ls`, `show`, `edit`, `next` and `find`.
 
 use std::collections::{BTreeMap, HashMap};
-use std::io::Read;
 
 use serde::Serialize;
 
@@ -126,20 +125,15 @@ pub struct ListFilter<'a> {
 }
 
 /// Resolves a body argument: `-` reads stdin to its end, anything else is the text itself.
-fn body_text(body: Option<&str>) -> Result<Option<String>, Error> {
+fn body_text(env: &Env, body: Option<&str>) -> Result<Option<String>, Error> {
     match body {
         Some("-") => {
-            let mut text = String::new();
-            std::io::stdin()
-                .lock()
-                .read_to_string(&mut text)
-                .map_err(|err| match err.kind() {
-                    std::io::ErrorKind::InvalidData => {
-                        Error::Usage("the body read from stdin is not valid UTF-8".into())
-                    }
-                    _ => Error::Internal(format!("cannot read the body from stdin: {err}")),
-                })?;
-            Ok(Some(text))
+            let bytes = env.read_stdin().map_err(|err| {
+                Error::Internal(format!("cannot read the body from stdin: {err}"))
+            })?;
+            String::from_utf8(bytes)
+                .map(Some)
+                .map_err(|_| Error::Usage("the body read from stdin is not valid UTF-8".into()))
         }
         other => Ok(other.map(str::to_owned)),
     }
@@ -259,7 +253,7 @@ pub fn add(
     for tag in input.tags {
         validate_name("tag", tag)?;
     }
-    let body = body_text(input.body)?.unwrap_or_default();
+    let body = body_text(env, input.body)?.unwrap_or_default();
     let actor = env.actor(by);
     let target = scope::target(env, request)?;
     open_store(env)?.write(|tx| {
@@ -384,7 +378,7 @@ pub fn edit(env: &Env, id: i64, change: TaskEdit<'_>) -> Result<TaskData, Error>
     if let Some(project) = change.project {
         validate_name("project name", project)?;
     }
-    let body = body_text(change.body)?;
+    let body = body_text(env, change.body)?;
     open_store(env)?.write(|tx| {
         let task = task_by_id(tx, id)?;
         let target = match change.project {

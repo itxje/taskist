@@ -26,6 +26,12 @@ pub enum Error {
     /// Status change the transition table forbids.
     #[error("{0}")]
     InvalidTransition(String),
+    /// The server named by `TASKIST_SERVER` could not be reached, or its reply was lost or broken.
+    #[error("{0}")]
+    Unreachable(String),
+    /// The server refused the token.
+    #[error("{0}")]
+    Unauthorized(String),
 }
 
 impl Error {
@@ -38,6 +44,8 @@ impl Error {
             Self::NotFound(_) => "not_found",
             Self::Conflict(_) => "conflict",
             Self::InvalidTransition(_) => "invalid_transition",
+            Self::Unreachable(_) => "unreachable",
+            Self::Unauthorized(_) => "unauthorized",
         }
     }
 
@@ -48,6 +56,8 @@ impl Error {
             Self::Usage(_) => 2,
             Self::NotFound(_) => 3,
             Self::Conflict(_) | Self::InvalidTransition(_) => 4,
+            Self::Unreachable(_) => 5,
+            Self::Unauthorized(_) => 6,
         }
     }
 }
@@ -98,6 +108,8 @@ mod tests {
             Error::NotFound("no task 7".into()),
             Error::Conflict("project exists".into()),
             Error::InvalidTransition("task is dropped".into()),
+            Error::Unreachable("connection refused".into()),
+            Error::Unauthorized("token refused".into()),
         ];
         for error in &all {
             match error {
@@ -106,7 +118,9 @@ mod tests {
                 | Error::Usage(_)
                 | Error::NotFound(_)
                 | Error::Conflict(_)
-                | Error::InvalidTransition(_) => {}
+                | Error::InvalidTransition(_)
+                | Error::Unreachable(_)
+                | Error::Unauthorized(_) => {}
             }
         }
         all
@@ -127,6 +141,8 @@ mod tests {
                 ("not_found", 3),
                 ("conflict", 4),
                 ("invalid_transition", 4),
+                ("unreachable", 5),
+                ("unauthorized", 6),
             ]
         );
     }

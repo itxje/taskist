@@ -13,11 +13,13 @@ and in-process tests drive the library. All code is synchronous.
 ```text
 src/main.rs               captures arguments, environment variables, the current-directory
                           reader and the terminal state into an Env, calls taskist::run
-src/lib.rs                run: parses arguments, selects the output format, dispatches each
-                          command and returns its exit code; fail: reports a failure found
-                          before a command ran
+src/lib.rs                run: forwards to TASKIST_SERVER when it is set, otherwise parses
+                          arguments, selects the output format, dispatches each command and
+                          returns its exit code; fail: reports a failure found before a
+                          command ran
 src/cli.rs                clap definitions of every command and option
-src/env.rs                Env: the captured environment, database location, actor, colour rules
+src/env.rs                Env: the captured environment, database location, actor, colour
+                          rules, and stdin (the process's, or the input a client forwarded)
 src/error.rs              Error: the error enumeration, its codes and exit codes, and the
                           mapping of clap and SQLite errors
 src/scope.rs              project resolution: flag > TASKIST_PROJECT > current directory > none
@@ -33,14 +35,41 @@ src/command/project.rs    project add, ls, show, edit, archive, rm
 src/command/feature.rs    feature ls, mv
 src/command/exchange.rs   brief, export, import
 src/guide.rs              guide (embedded from docs/guide.md at build time), completions
+src/remote.rs             remote mode: the protocol, the forwarding client and tk serve
 src/output.rs             human text and JSON envelopes; the only module that writes to
-                          stdout or stderr
+                          stdout or stderr, or into the per-thread capture of tk serve
 ```
 
 Each command function opens the store, runs one transaction and returns a serializable
 value; `output::emit` renders it as human text or as the JSON success envelope, or renders
 the error. The library reads the process environment only through `Env`, so tests build one
 by hand.
+
+## Remote mode
+
+`tk serve --listen ADDR` serves its own database; `tk` with `TASKIST_SERVER` forwards to it.
+The command code is the same in both: only where output goes and where input comes from
+change.
+
+- **Client** (`run`): a command that parses, other than `guide` and `completions`, and whose
+  output format can be selected, is forwarded; everything else runs locally, so argument
+  errors, `--help` and `--version` are identical with or without a server. The client reads
+  the input the command would read (stdin for a `-` body, the file or stdin for `tk import`)
+  and nothing else.
+- **Protocol**: one TCP connection per command. The request is one JSON line
+  `{v, token, args, vars, cwd, terminal, input_len}` followed by `input_len` raw bytes of
+  input; `vars` holds only the variables the commands read, except those locating the
+  database; `cwd` is the client's canonical current directory, or the error it met. The reply
+  is one JSON line, `{v, ran: {exit, stdout, stderr}}` or
+  `{v, refused: {code, message}}` with `code` `unauthorized` or `bad_request`. Requests and
+  replies are at most 16 MiB; reads and writes time out after a minute.
+- **Server**: compares tokens in constant time before reading the input, builds an `Env`
+  from its own variables with the forwarded ones replaced by the client's, the client's
+  directory (used as given, already canonical) and terminal state, and the forwarded input in
+  place of stdin, so a forwarded `tk import` never opens a path on the server. It runs the
+  command on its own thread under `output::capture`, at most 32 at a time, and logs one line
+  per connection to stderr without the token or any command text. Concurrent forwarded writers
+  are serialized by SQLite as local ones are.
 
 Integration tests live in `tests/`; `tests/common/mod.rs` runs every command in an empty
 environment inside a temporary directory, so no test reaches a real database.

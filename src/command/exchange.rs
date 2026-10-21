@@ -4,7 +4,6 @@
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
-use std::io::Read;
 use std::path::Path;
 
 use serde::ser::SerializeStruct;
@@ -426,28 +425,27 @@ fn at_line(line: usize, err: Error) -> Error {
         Error::NotFound(message) => Error::NotFound(prefix(message)),
         Error::Conflict(message) => Error::Conflict(prefix(message)),
         Error::InvalidTransition(message) => Error::InvalidTransition(prefix(message)),
+        Error::Unreachable(message) => Error::Unreachable(prefix(message)),
+        Error::Unauthorized(message) => Error::Unauthorized(prefix(message)),
         other @ Error::UnsupportedSchema { .. } => other,
     }
 }
 
-/// The bytes of the import file, or of stdin for `-`.
-fn read_source(env: &Env, file: &Path) -> Result<Vec<u8>, Error> {
-    let mut bytes = Vec::new();
-    if file == Path::new("-") {
-        std::io::stdin()
-            .lock()
-            .read_to_end(&mut bytes)
-            .map_err(|err| Error::Internal(format!("cannot read the import from stdin: {err}")))?;
-    } else {
-        let path = env.absolute(file)?;
-        bytes = std::fs::read(&path).map_err(|err| {
-            Error::Internal(format!(
-                "cannot read the import file {}: {err}",
-                path.display()
-            ))
-        })?;
+/// The bytes of the import file, or of stdin for `-`. A forwarded import reads the bytes the
+/// client sent, the file's or its stdin's, and never opens a path on this machine.
+pub(crate) fn read_source(env: &Env, file: &Path) -> Result<Vec<u8>, Error> {
+    if file == Path::new("-") || env.is_forwarded() {
+        return env
+            .read_stdin()
+            .map_err(|err| Error::Internal(format!("cannot read the import from stdin: {err}")));
     }
-    Ok(bytes)
+    let path = env.absolute(file)?;
+    std::fs::read(&path).map_err(|err| {
+        Error::Internal(format!(
+            "cannot read the import file {}: {err}",
+            path.display()
+        ))
+    })
 }
 
 /// A parse error of one line, positioned by column only: the caller names the line of the

@@ -118,6 +118,8 @@ fn the_guide_and_readme_name_which_empty_values_count_as_unset() {
         "USER",
         "NO_COLOR",
         "CLICOLOR_FORCE",
+        "TASKIST_SERVER",
+        "TASKIST_TOKEN",
     ]);
     let set = sorted(&["CLICOLOR", "TERM", "CI"]);
     for document in ["docs/guide.md", "README.md"] {

@@ -71,9 +71,11 @@ tk ls --all-projects --json          # everything open, as one JSON envelope
 | `TASKIST_FORMAT` | `json` or `text`; `--json` wins; any other value is a `usage` error. |
 | `TASKIST_ACTOR` | Actor recorded on tasks and notes without `--by`; then `USER`, then `unknown`. |
 | `NO_COLOR`, `CLICOLOR`, `CLICOLOR_FORCE`, `TERM`, `CI` | Colour of human output, by the usual rules; JSON is never coloured. |
+| `TASKIST_SERVER` | `HOST:PORT` of a `tk serve`; commands then run there, against its database. |
+| `TASKIST_TOKEN` | The token `tk serve` requires and a client sends. |
 
 An empty `TASKIST_DB`, `XDG_DATA_HOME`, `HOME`, `TASKIST_PROJECT`, `TASKIST_ACTOR`,
-`USER`, `NO_COLOR` or `CLICOLOR_FORCE` counts as unset. An empty `CLICOLOR`, `TERM` or `CI`
+`USER`, `NO_COLOR`, `CLICOLOR_FORCE`, `TASKIST_SERVER` or `TASKIST_TOKEN` counts as unset. An empty `CLICOLOR`, `TERM` or `CI`
 counts as set. An empty `TASKIST_FORMAT` is a `usage` error, like any value other than
 `json` or `text`.
 
@@ -100,6 +102,7 @@ commands without a scope, or with `--all-projects`, cover every non-archived pro
 | `tk feature ls\|mv` | List, rename or merge features. |
 | `tk guide` | Print the usage guide. |
 | `tk completions SHELL` | Print a shell completion script. |
+| `tk serve --listen ADDR` | Serve this machine's database to `tk` on other machines (private networks only). |
 
 Global options: `--json`, `--by ACTOR`, `--help`, `--version`. `tk guide` documents every
 option, the status transitions and each command's JSON data.
@@ -126,6 +129,8 @@ option, the status transitions and each command's JSON data.
 | 2 | `usage` | bad arguments or values, missing scope, malformed import line |
 | 3 | `not_found` | unknown task id, project or feature |
 | 4 | `conflict`, `invalid_transition` | duplicate or archived project, non-empty removal; forbidden status change |
+| 5 | `unreachable` | the `TASKIST_SERVER` server cannot be reached, or its reply was lost |
+| 6 | `unauthorized` | the server refused the token |
 
 ## Backups
 

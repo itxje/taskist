@@ -48,3 +48,4 @@ Each task is a single line linking to its detail file. All detailed information 
 - [x] [**20260927-1800-release-raw-binaries Publish release binaries without archives**](20260927-1800-release-raw-binaries.md) `P1`
 - [x] [**20260927-1955-colour-priority-project Colour priorities and project names in human output**](20260927-1955-colour-priority-project.md) `P2`
 - [x] [**20260927-2005-table-task-list Render task lists as an aligned table**](20260927-2005-table-task-list.md) `P2`
+- [x] [**20261021-0241-remote-mode Remote mode: one database served to tk on other machines**](20261021-0241-remote-mode.md) `P1`

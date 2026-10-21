@@ -118,13 +118,7 @@ pub fn resolve(tx: &Tx<'_>, env: &Env, target: &Target) -> Result<Scope, Error> 
         Pick::All => Ok(none()),
         Pick::Named(name, source) => named(tx, name, *source),
         Pick::Directory => {
-            let current_dir = env.current_dir()?;
-            let cwd = std::fs::canonicalize(&current_dir).map_err(|err| {
-                Error::Internal(format!(
-                    "cannot resolve the current directory {}: {err}",
-                    current_dir.display()
-                ))
-            })?;
+            let cwd = env.canonical_current_dir()?;
             Ok(
                 match_directory(tx.projects(false)?, &cwd).map_or_else(none, |project| Scope {
                     project: Some(project),
